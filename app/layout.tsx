@@ -1,17 +1,10 @@
 import type { Metadata, Viewport } from "next";
-import { headers } from "next/headers";
 import "./globals.css";
 
-export async function generateMetadata(): Promise<Metadata> {
-  const requestHeaders = await headers();
-  const host =
-    requestHeaders.get("x-forwarded-host") ??
-    requestHeaders.get("host") ??
-    "localhost:3000";
-  const protocol =
-    requestHeaders.get("x-forwarded-proto") ??
-    (host.startsWith("localhost") ? "http" : "https");
-  const origin = `${protocol}://${host}`;
+export function generateMetadata(): Metadata {
+  const origin =
+    process.env.NEXT_PUBLIC_SITE_URL ??
+    "https://zhiyin-guzheng-practice.jolly-rhea-7956.chatgpt.site";
   const title = "知音 · 古筝智能陪练";
   const description = "看简谱练习，实时获得古筝音高与节奏反馈。";
 
