@@ -28,7 +28,7 @@ jobs:
           cache: npm
 
       - name: 安装依赖
-        run: npm ci --ignore-scripts
+        run: npm install --ignore-scripts --no-audit --no-fund
 
       - name: 构建 GitHub Pages
         run: npm run build:pages
