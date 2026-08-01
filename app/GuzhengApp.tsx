@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  autoCorrelate,
+  assessTuningFrames,
   classifyPerformance,
+  detectPitchYin,
   hzToMidi,
+  median,
   noteName,
 } from "../lib/music-core.mjs";
 import {
@@ -22,7 +24,6 @@ import {
 type View = "home" | "practice" | "records" | "teacher" | "privacy";
 type PracticeStage =
   | "setup"
-  | "environment"
   | "tuning"
   | "ready"
   | "countdown"
@@ -30,6 +31,8 @@ type PracticeStage =
   | "summary";
 
 type Settings = typeof DEFAULT_SETTINGS;
+type PreparationStatus = "idle" | "checking" | "passed" | "noisy" | "no-signal" | "denied";
+type TuningStatus = "listening" | "wrong-string" | "adjust" | "correct";
 
 const SPEEDS = [0.5, 0.7, 0.85, 1];
 const TUNING_TARGETS = [
@@ -37,6 +40,20 @@ const TUNING_TARGETS = [
   { label: "低音 5", midi: 57, string: "第十二弦 · A3" },
   { label: "中音 1", midi: 62, string: "第十一弦 · D4" },
 ];
+const ALL_TUNED_STRINGS = [
+  { label: "低音 1", midi: 50 },
+  { label: "低音 2", midi: 52 },
+  { label: "低音 3", midi: 54 },
+  { label: "低音 5", midi: 57 },
+  { label: "低音 6", midi: 59 },
+  { label: "中音 1", midi: 62 },
+  { label: "中音 2", midi: 64 },
+  { label: "中音 3", midi: 66 },
+  { label: "中音 5", midi: 69 },
+  { label: "中音 6", midi: 71 },
+  { label: "高音 1", midi: 74 },
+];
+const TUNING_TOLERANCE_CENTS = 20;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -251,14 +268,20 @@ export default function GuzhengApp() {
   const [speed, setSpeed] = useState(0.7);
   const [demoMode, setDemoMode] = useState(false);
   const [micState, setMicState] = useState<"idle" | "opening" | "ready" | "denied">("idle");
-  const [environmentChecking, setEnvironmentChecking] = useState(false);
-  const [environmentPassed, setEnvironmentPassed] = useState<boolean | null>(null);
+  const [preparationStatus, setPreparationStatus] = useState<PreparationStatus>("idle");
+  const [practiceScoringEnabled, setPracticeScoringEnabled] = useState(true);
   const [tuningIndex, setTuningIndex] = useState(0);
   const [tuningPassed, setTuningPassed] = useState<boolean[]>([false, false, false]);
+  const [tuningGoodPlucks, setTuningGoodPlucks] = useState(0);
+  const [tuningStatus, setTuningStatus] = useState<TuningStatus>("listening");
+  const [tuningMessage, setTuningMessage] = useState("请拨响目标琴弦");
   const [livePitch, setLivePitch] = useState("—");
   const [liveCents, setLiveCents] = useState(0);
   const [liveLevel, setLiveLevel] = useState(0);
-  const [countdown, setCountdown] = useState(3);
+  const [countdown, setCountdown] = useState(4);
+  const [activeBeat, setActiveBeat] = useState(-1);
+  const [metronomeVolume, setMetronomeVolume] = useState(0.34);
+  const [metronomeTesting, setMetronomeTesting] = useState(false);
   const [statuses, setStatuses] = useState<Record<string, NoteStatus>>({});
   const [evaluations, setEvaluations] = useState<Record<string, NoteEvaluation>>({});
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -276,13 +299,24 @@ export default function GuzhengApp() {
   const audioLoopRef = useRef<() => void>(() => undefined);
   const lastRmsRef = useRef(0);
   const latestRmsRef = useRef(0);
+  const lastValidPitchAtRef = useRef(0);
   const lastOnsetRef = useRef(0);
+  const noiseSamplesRef = useRef<number[]>([]);
+  const tuningPluckRef = useRef<{
+    startedAt: number;
+    frames: Array<{ midi: number; confidence: number }>;
+    resolved: boolean;
+  } | null>(null);
+  const tuningGoodPlucksRef = useRef(0);
+  const tuningAdvancePendingRef = useRef(false);
   const practiceStartRef = useRef(0);
   const currentIndexRef = useRef(0);
   const evaluationsRef = useRef<Record<string, NoteEvaluation>>({});
-  const monitorRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const metronomeRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const demoTimersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
+  const monitorRef = useRef<number | null>(null);
+  const metronomeRef = useRef<number | null>(null);
+  const nextBeatTimeRef = useRef(0);
+  const beatCounterRef = useRef(0);
+  const demoTimersRef = useRef<number[]>([]);
   const finishedRef = useRef(false);
   const stageRef = useRef<PracticeStage>("setup");
   const scoreRef = useRef<Score>(SCORES[0]);
@@ -319,12 +353,14 @@ export default function GuzhengApp() {
   }, [toast]);
 
   const stopTimers = useCallback(() => {
-    if (monitorRef.current) clearInterval(monitorRef.current);
-    if (metronomeRef.current) clearInterval(metronomeRef.current);
+    if (monitorRef.current) window.clearInterval(monitorRef.current);
+    if (metronomeRef.current) window.clearInterval(metronomeRef.current);
     monitorRef.current = null;
     metronomeRef.current = null;
-    demoTimersRef.current.forEach((timer) => clearTimeout(timer));
+    demoTimersRef.current.forEach((timer) => window.clearTimeout(timer));
     demoTimersRef.current = [];
+    setActiveBeat(-1);
+    setMetronomeTesting(false);
   }, []);
 
   const stopAudio = useCallback(() => {
@@ -446,6 +482,42 @@ export default function GuzhengApp() {
     [setEvaluation, updatePhraseTip],
   );
 
+  const advanceTuning = useCallback(() => {
+    const updated = [...tuningPassed];
+    updated[tuningIndex] = true;
+    setTuningPassed(updated);
+    tuningGoodPlucksRef.current = 0;
+    setTuningGoodPlucks(0);
+    setTuningStatus("listening");
+    setLivePitch("—");
+    setLiveCents(0);
+    tuningPluckRef.current = null;
+    tuningAdvancePendingRef.current = false;
+    if (tuningIndex < TUNING_TARGETS.length - 1) {
+      setTuningIndex((index) => index + 1);
+      setTuningMessage("请拨响目标琴弦");
+    } else {
+      setStage("ready");
+      setToast("三根琴弦已调准，可以开始练习");
+    }
+  }, [tuningIndex, tuningPassed]);
+
+  const registerCorrectTuningPluck = useCallback(() => {
+    if (tuningAdvancePendingRef.current) return;
+    const nextCount = Math.min(2, tuningGoodPlucksRef.current + 1);
+    tuningGoodPlucksRef.current = nextCount;
+    setTuningGoodPlucks(nextCount);
+    setTuningStatus("correct");
+    if (nextCount < 2) {
+      setTuningMessage("很好，再拨一次确认稳定");
+      return;
+    }
+    setTuningMessage("音高稳定，自动进入下一根");
+    tuningAdvancePendingRef.current = true;
+    const timer = window.setTimeout(advanceTuning, 520);
+    demoTimersRef.current.push(timer);
+  }, [advanceTuning]);
+
   const audioLoop = useCallback(() => {
     const analyser = analyserRef.current;
     const context = audioContextRef.current;
@@ -453,40 +525,115 @@ export default function GuzhengApp() {
     if (!analyser || !context || !buffer) return;
 
     analyser.getFloatTimeDomainData(buffer);
-    const result = autoCorrelate(buffer, context.sampleRate);
+    const result = detectPitchYin(buffer, context.sampleRate, {
+      minFrequency: stageRef.current === "tuning" ? 70 : 60,
+      maxFrequency: stageRef.current === "tuning" ? 520 : 1200,
+    });
+    const now = performance.now();
     latestRmsRef.current = result.rms;
-    setLiveLevel(clamp(result.rms * 8, 0, 1));
+    setLiveLevel(clamp(result.rms * 9, 0, 1));
 
-    if (result.frequency > 60 && result.frequency < 1800 && result.confidence > 0.42) {
+    if (preparationStatus === "checking") {
+      noiseSamplesRef.current.push(result.rms);
+    }
+
+    const onset =
+      result.rms > 0.018 &&
+      result.rms > Math.max(0.02, lastRmsRef.current * 1.3) &&
+      now - lastOnsetRef.current > 170;
+
+    if (result.frequency > 60 && result.frequency < 1800 && result.confidence > 0.58) {
       const midi = hzToMidi(result.frequency);
+      lastValidPitchAtRef.current = now;
       setLivePitch(noteName(midi));
       const target = TUNING_TARGETS[tuningIndex];
       setLiveCents(Math.round((midi - target.midi) * 100));
 
-      const now = performance.now();
-      const onset =
-        result.rms > 0.018 &&
-        result.rms > Math.max(0.02, lastRmsRef.current * 1.28) &&
-        now - lastOnsetRef.current > 135;
-      if (onset && stageRef.current === "playing") {
+      if (onset) {
         lastOnsetRef.current = now;
-        evaluateOnset(midi, result.confidence);
+        if (stageRef.current === "playing" && practiceScoringEnabled) {
+          evaluateOnset(midi, result.confidence);
+        }
+        if (stageRef.current === "tuning") {
+          tuningPluckRef.current = { startedAt: now, frames: [], resolved: false };
+          setTuningStatus("listening");
+          setTuningMessage("正在确认音高，请让琴弦自然延音");
+        }
       }
-    } else if (result.rms < 0.01) {
+
+      const tuningPluck = tuningPluckRef.current;
+      if (
+        stageRef.current === "tuning" &&
+        tuningPluck &&
+        !tuningPluck.resolved &&
+        now - tuningPluck.startedAt >= 90 &&
+        now - tuningPluck.startedAt <= 650
+      ) {
+        tuningPluck.frames.push({ midi, confidence: result.confidence });
+        if (now - tuningPluck.startedAt >= 260) {
+          const assessment = assessTuningFrames({
+            frames: tuningPluck.frames,
+            targetMidi: target.midi,
+            toleranceCents: TUNING_TOLERANCE_CENTS,
+          });
+          if (assessment.status !== "listening" && assessment.midi !== null) {
+            tuningPluck.resolved = true;
+            const nearestString = ALL_TUNED_STRINGS.reduce((nearest, string) =>
+              Math.abs(string.midi - assessment.midi) < Math.abs(nearest.midi - assessment.midi)
+                ? string
+                : nearest,
+            );
+            const nearestCents = Math.abs((assessment.midi - nearestString.midi) * 100);
+            if (nearestString.midi !== target.midi && nearestCents <= 45) {
+              tuningGoodPlucksRef.current = 0;
+              setTuningGoodPlucks(0);
+              setTuningStatus("wrong-string");
+              setTuningMessage(`听起来像${nearestString.label}，请拨${target.label}`);
+            } else if (assessment.status === "correct") {
+              registerCorrectTuningPluck();
+            } else {
+              tuningGoodPlucksRef.current = 0;
+              setTuningGoodPlucks(0);
+              setTuningStatus("adjust");
+              setTuningMessage(assessment.cents > 0 ? "音偏高，请稍微调低" : "音偏低，请稍微调高");
+            }
+          }
+        }
+      }
+    }
+
+    if (now - lastValidPitchAtRef.current > 850) {
       setLivePitch("—");
+      if (stageRef.current === "tuning" && !tuningAdvancePendingRef.current) {
+        setTuningStatus("listening");
+        setTuningMessage(
+          tuningGoodPlucksRef.current === 1 ? "已拨对一次，再拨一次" : "没有听到琴声，请再拨一次",
+        );
+      }
     }
 
     lastRmsRef.current = result.rms * 0.72 + lastRmsRef.current * 0.28;
     rafRef.current = requestAnimationFrame(() => audioLoopRef.current());
-  }, [evaluateOnset, tuningIndex]);
+  }, [evaluateOnset, practiceScoringEnabled, preparationStatus, registerCorrectTuningPluck, tuningIndex]);
 
   useEffect(() => {
     audioLoopRef.current = audioLoop;
   }, [audioLoop]);
 
+  const ensureOutputAudio = useCallback(async () => {
+    let context = audioContextRef.current;
+    if (!context || context.state === "closed") {
+      context = new AudioContext({ latencyHint: "interactive" });
+      audioContextRef.current = context;
+    }
+    if (context.state !== "running") await context.resume();
+    return context;
+  }, []);
+
   const ensureAudio = useCallback(async () => {
+    const context = await ensureOutputAudio();
     if (demoMode) return true;
-    if (analyserRef.current && audioContextRef.current) return true;
+    if (analyserRef.current) return true;
     if (!navigator.mediaDevices?.getUserMedia) {
       setMicState("denied");
       return false;
@@ -501,8 +648,6 @@ export default function GuzhengApp() {
           channelCount: 1,
         },
       });
-      const context = new AudioContext({ latencyHint: "interactive" });
-      await context.resume();
       const source = context.createMediaStreamSource(stream);
       const highPass = context.createBiquadFilter();
       highPass.type = "highpass";
@@ -511,11 +656,10 @@ export default function GuzhengApp() {
       lowPass.type = "lowpass";
       lowPass.frequency.value = 1800;
       const analyser = context.createAnalyser();
-      analyser.fftSize = 2048;
-      analyser.smoothingTimeConstant = 0.15;
+      analyser.fftSize = 4096;
+      analyser.smoothingTimeConstant = 0.08;
       source.connect(highPass).connect(lowPass).connect(analyser);
       streamRef.current = stream;
-      audioContextRef.current = context;
       analyserRef.current = analyser;
       audioBufferRef.current = new Float32Array(analyser.fftSize);
       setMicState("ready");
@@ -525,60 +669,126 @@ export default function GuzhengApp() {
       setMicState("denied");
       return false;
     }
-  }, [demoMode]);
+  }, [demoMode, ensureOutputAudio]);
 
-  const beginEnvironmentCheck = async () => {
-    setStage("environment");
-    setEnvironmentPassed(null);
-    setEnvironmentChecking(true);
+  const beginPreparationCheck = async () => {
+    setPracticeScoringEnabled(true);
+    setPreparationStatus("checking");
+    noiseSamplesRef.current = [];
     if (demoMode) {
+      await ensureOutputAudio();
       window.setTimeout(() => {
-        setEnvironmentPassed(true);
-        setEnvironmentChecking(false);
-      }, 1300);
+        setMicState("ready");
+        setPreparationStatus("passed");
+      }, 1100);
       return;
     }
     const ready = await ensureAudio();
     if (!ready) {
-      setEnvironmentChecking(false);
+      setPreparationStatus("denied");
       return;
     }
     window.setTimeout(() => {
-      setEnvironmentPassed(latestRmsRef.current < 0.075);
-      setEnvironmentChecking(false);
-    }, 2200);
+      const samples = noiseSamplesRef.current;
+      const baseline = median(samples.slice(0, Math.max(1, Math.floor(samples.length * 0.42))));
+      const heardSignal = samples.some((value) => value > Math.max(0.018, baseline * 2.4));
+      if (!heardSignal) setPreparationStatus("no-signal");
+      else if (baseline > 0.038) setPreparationStatus("noisy");
+      else setPreparationStatus("passed");
+    }, 2800);
   };
 
-  const confirmTuningString = () => {
-    const updated = [...tuningPassed];
-    updated[tuningIndex] = true;
-    setTuningPassed(updated);
-    if (tuningIndex < TUNING_TARGETS.length - 1) {
-      setTuningIndex((index) => index + 1);
-    } else {
-      setStage("ready");
-      setToast("调音检查完成，可以开始练习");
-    }
+  const enterTuning = () => {
+    setPracticeScoringEnabled(true);
+    setTuningIndex(0);
+    setTuningPassed([false, false, false]);
+    setTuningGoodPlucks(0);
+    tuningGoodPlucksRef.current = 0;
+    tuningAdvancePendingRef.current = false;
+    setTuningStatus("listening");
+    setTuningMessage(demoMode ? "点击下方按钮模拟一次拨弦" : "请拨响目标琴弦");
+    setStage("tuning");
   };
 
-  const playClick = useCallback((accent = false) => {
+  const enterUnscoredPractice = async () => {
+    await ensureOutputAudio();
+    setPracticeScoringEnabled(false);
+    setStage("ready");
+    setToast("已进入不计分练习，系统只提供曲谱和节拍");
+  };
+
+  const playClick = useCallback((accent = false, scheduledTime?: number) => {
     const context = audioContextRef.current;
     if (!context) return;
+    const startAt = scheduledTime ?? context.currentTime;
     const oscillator = context.createOscillator();
     const gain = context.createGain();
-    oscillator.frequency.value = accent ? 1100 : 820;
-    gain.gain.setValueAtTime(0.0001, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.08, context.currentTime + 0.004);
-    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.055);
+    oscillator.frequency.value = accent ? 1320 : 880;
+    gain.gain.setValueAtTime(0.0001, startAt);
+    gain.gain.exponentialRampToValueAtTime(metronomeVolume * (accent ? 0.54 : 0.4), startAt + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.07);
     oscillator.connect(gain).connect(context.destination);
-    oscillator.start();
-    oscillator.stop(context.currentTime + 0.06);
-  }, []);
+    oscillator.start(startAt);
+    oscillator.stop(startAt + 0.075);
+  }, [metronomeVolume]);
+
+  const startMetronome = useCallback((beatMs: number) => {
+    const context = audioContextRef.current;
+    if (!context) return;
+    nextBeatTimeRef.current = context.currentTime + 0.06;
+    beatCounterRef.current = 0;
+    const scheduler = () => {
+      while (nextBeatTimeRef.current < context.currentTime + 0.13) {
+        const beat = beatCounterRef.current % 4;
+        const scheduledTime = nextBeatTimeRef.current;
+        playClick(beat === 0, scheduledTime);
+        const delay = Math.max(0, (scheduledTime - context.currentTime) * 1000);
+        const visualTimer = window.setTimeout(() => setActiveBeat(beat), delay);
+        demoTimersRef.current.push(visualTimer);
+        beatCounterRef.current += 1;
+        nextBeatTimeRef.current += beatMs / 1000;
+      }
+    };
+    scheduler();
+    metronomeRef.current = window.setInterval(scheduler, 25);
+  }, [playClick]);
+
+  const testMetronome = async () => {
+    await ensureOutputAudio();
+    stopTimers();
+    setMetronomeTesting(true);
+    const beatMs = 60000 / (selectedScore.bpm * speed);
+    startMetronome(beatMs);
+    const timer = window.setTimeout(() => {
+      if (metronomeRef.current) window.clearInterval(metronomeRef.current);
+      metronomeRef.current = null;
+      setActiveBeat(-1);
+      setMetronomeTesting(false);
+    }, beatMs * 4 + 120);
+    demoTimersRef.current.push(timer);
+  };
+
+  const simulateTuningPluck = () => {
+    if (!demoMode || tuningAdvancePendingRef.current) return;
+    const target = TUNING_TARGETS[tuningIndex];
+    setLivePitch(noteName(target.midi));
+    setLiveCents(tuningGoodPlucksRef.current === 0 ? 7 : -4);
+    registerCorrectTuningPluck();
+  };
 
   const finishPractice = useCallback(() => {
     if (finishedRef.current) return;
     finishedRef.current = true;
     stopTimers();
+    if (!practiceScoringEnabled) {
+      setStage("ready");
+      setStatuses({});
+      setEvaluations({});
+      setCurrentIndex(0);
+      currentIndexRef.current = 0;
+      setToast("不计分练习已完成，本次没有生成成绩");
+      return;
+    }
     const score = scoreRef.current;
 
     score.notes.forEach((note) => {
@@ -628,32 +838,32 @@ export default function GuzhengApp() {
       setLastRecord(record);
       setStage("summary");
     }, 120);
-  }, [setEvaluation, stopTimers]);
+  }, [practiceScoringEnabled, setEvaluation, stopTimers]);
 
   const beginPerformance = useCallback(() => {
     const score = scoreRef.current;
     const beatMs = 60000 / (score.bpm * speedRef.current);
-    practiceStartRef.current = performance.now() + 100;
+    practiceStartRef.current = performance.now();
     currentIndexRef.current = 0;
     setCurrentIndex(0);
     finishedRef.current = false;
     setPhraseTip(null);
     setStage("playing");
 
-    let beat = 0;
-    playClick(true);
-    metronomeRef.current = setInterval(() => {
-      beat += 1;
-      playClick(beat % 4 === 0);
-    }, beatMs);
-
-    monitorRef.current = setInterval(() => {
+    monitorRef.current = window.setInterval(() => {
       if (finishedRef.current) return;
       const elapsed = performance.now() - practiceStartRef.current;
       const index = currentIndexRef.current;
       const note = score.notes[index];
       if (!note) {
         if (elapsed > totalBeats(score) * beatMs + 650) finishPractice();
+        return;
+      }
+
+      if (!practiceScoringEnabled && elapsed > note.startBeat * beatMs + 80) {
+        setEvaluation(note.id, { noteId: note.id, status: "uncertain" });
+        currentIndexRef.current += 1;
+        setCurrentIndex(currentIndexRef.current);
         return;
       }
 
@@ -686,23 +896,29 @@ export default function GuzhengApp() {
           index === 5 ? { midi: note.midi + 1, offset: 20 } :
           index === 11 ? { midi: note.midi, offset: 190 } :
           { midi: note.midi + (index % 6 === 0 ? 0.08 : 0), offset: 20 };
-        const timer = setTimeout(
-          () => evaluateOnset(variation.midi, 0.91, variation.offset),
+        const timer = window.setTimeout(
+          () => {
+            setLivePitch(noteName(variation.midi));
+            evaluateOnset(variation.midi, 0.91, variation.offset);
+            const clearTimer = window.setTimeout(() => setLivePitch("—"), 420);
+            demoTimersRef.current.push(clearTimer);
+          },
           Math.max(120, note.startBeat * beatMs + variation.offset),
         );
         demoTimersRef.current.push(timer);
       });
     }
 
-    const finishTimer = setTimeout(
+    const finishTimer = window.setTimeout(
       finishPractice,
       totalBeats(score) * beatMs + 1200,
     );
     demoTimersRef.current.push(finishTimer);
-  }, [demoMode, evaluateOnset, finishPractice, playClick, setEvaluation, updatePhraseTip]);
+  }, [demoMode, evaluateOnset, finishPractice, practiceScoringEnabled, setEvaluation, updatePhraseTip]);
 
   const startCountdown = async () => {
-    if (!demoMode) {
+    await ensureOutputAudio();
+    if (practiceScoringEnabled && !demoMode) {
       const ready = await ensureAudio();
       if (!ready) return;
     }
@@ -710,13 +926,15 @@ export default function GuzhengApp() {
     evaluationsRef.current = {};
     setEvaluations({});
     setStatuses({});
-    setCountdown(3);
+    setCountdown(4);
     setStage("countdown");
-    [3, 2, 1].forEach((value, index) => {
-      const timer = setTimeout(() => setCountdown(value), index * 780);
+    const beatMs = 60000 / (selectedScore.bpm * speed);
+    startMetronome(beatMs);
+    [4, 3, 2, 1].forEach((value, index) => {
+      const timer = window.setTimeout(() => setCountdown(value), index * beatMs);
       demoTimersRef.current.push(timer);
     });
-    const startTimer = setTimeout(beginPerformance, 2420);
+    const startTimer = window.setTimeout(beginPerformance, beatMs * 4);
     demoTimersRef.current.push(startTimer);
   };
 
@@ -725,9 +943,15 @@ export default function GuzhengApp() {
     setSelectedScore(score);
     setStage("setup");
     setView("practice");
+    setPreparationStatus("idle");
+    setPracticeScoringEnabled(true);
+    setMicState(demoMode ? "ready" : analyserRef.current ? "ready" : "idle");
     setTuningIndex(0);
     setTuningPassed([false, false, false]);
-    setEnvironmentPassed(null);
+    setTuningGoodPlucks(0);
+    tuningGoodPlucksRef.current = 0;
+    setTuningStatus("listening");
+    setTuningMessage("请拨响目标琴弦");
     setStatuses({});
     setEvaluations({});
     evaluationsRef.current = {};
@@ -762,7 +986,7 @@ export default function GuzhengApp() {
     : 86;
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${view === "practice" ? "practice-active" : ""}`}>
       <header className="topbar">
         <button className="brand" onClick={() => setView("home")} aria-label="返回练习首页">
           <BrandMark />
@@ -784,67 +1008,39 @@ export default function GuzhengApp() {
 
       <main>
         {view === "home" && (
-          <div className="home-page page-enter">
-            <section className="hero">
-              <div className="hero-copy">
-                <span className="eyebrow">今天也和琴说说话</span>
-                <h1>每一个音，<br /><em>都听得见进步。</em></h1>
-                <p>
-                  看简谱练习，知音会在本地实时听辨音高与节奏。
-                  不打断你，只在该提醒的时候轻轻点一下。
-                </p>
-                <div className="hero-actions">
-                  <button className="primary-button" onClick={() => startScore(SCORES[0])}>
-                    继续今日练习
-                  </button>
-                  <button className="quiet-button" onClick={() => setDemoMode((value) => !value)}>
-                    <span className={`mode-switch ${demoMode ? "on" : ""}`} />
-                    {demoMode ? "演示识别已开启" : "开启演示识别"}
-                  </button>
+          <div className="home-page student-home page-enter">
+            <section className="daily-focus">
+              <span className="eyebrow">今日练习 · 约 10 分钟</span>
+              <h1>今天，先把<br /><em>每一个音弹稳。</em></h1>
+              <p>知音会先确认麦克风、节拍和调音，再开始评分。</p>
+
+              <article className="today-session-card">
+                <div className="today-session-number">01</div>
+                <div className="today-session-copy">
+                  <span>推荐基本功</span>
+                  <h2>{SCORES[0].title}</h2>
+                  <p>{SCORES[0].subtitle} · {Math.round(SCORES[0].bpm * 0.7)} BPM 起练</p>
+                  <div className="session-tags"><span>音准</span><span>节奏</span><span>约 2 分钟</span></div>
                 </div>
-                <div className="today-progress">
-                  <div className="progress-orb">
-                    <strong>{records.length ? Math.min(18, records.length * 3) : 8}</strong>
-                    <span>分钟</span>
-                  </div>
-                  <p><strong>今日目标 15 分钟</strong><span>再练一首，就离目标更近了</span></p>
-                </div>
-              </div>
-              <div className="hero-instrument" aria-label="古筝琴弦抽象图形">
-                <div className="instrument-copy">
-                  <span>听 · 辨 · 练</span>
-                  <strong>知音识律</strong>
-                  <small>实时音高与节奏反馈</small>
-                </div>
-                {Array.from({ length: 13 }, (_, index) => (
-                  <i key={index} style={{ "--string-index": index } as React.CSSProperties} />
-                ))}
-                <span className="bridge bridge-one" />
-                <span className="bridge bridge-two" />
-                <span className="bridge bridge-three" />
-              </div>
+                <button className="primary-button daily-start" onClick={() => startScore(SCORES[0])}>
+                  开始今日练习 <span aria-hidden="true">→</span>
+                </button>
+              </article>
+
+              <button className="demo-entry" onClick={() => setDemoMode((value) => !value)}>
+                <span className={`mode-switch ${demoMode ? "on" : ""}`} />
+                {demoMode ? "演示数据已开启" : "身边没有古筝？体验演示"}
+              </button>
             </section>
 
-            <section className="section-block">
-              <div className="section-heading">
-                <div>
-                  <span className="eyebrow">循序渐进</span>
-                  <h2>从一组指序，练到一首完整小曲</h2>
-                </div>
-                <p>第一阶段只评价明确单音与节奏；标有“技”的段落暂不评分。</p>
-              </div>
+            <details className="score-picker">
+              <summary>选择其他练习曲 <span>共 {SCORES.length} 首</span></summary>
               <div className="score-grid">
                 {SCORES.map((score) => (
                   <ScoreCard key={score.id} score={score} onStart={startScore} />
                 ))}
               </div>
-            </section>
-
-            <section className="insight-strip">
-              <div><span className="insight-number">01</span><strong>先调准，再练准</strong><p>练习前检查环境与本曲用弦，避免把琴的问题算到学生身上。</p></div>
-              <div><span className="insight-number">02</span><strong>边弹边亮谱</strong><p>绿色正确、黄色早晚、红色错音、灰色漏音，一眼看懂。</p></div>
-              <div><span className="insight-number">03</span><strong>一次只改两件事</strong><p>每句结束给简短建议，支持降速和循环，不用听长篇说教。</p></div>
-            </section>
+            </details>
           </div>
         )}
 
@@ -859,95 +1055,95 @@ export default function GuzhengApp() {
               <button className="more-button" onClick={() => setView("privacy")}>隐私设置</button>
             </div>
 
-            {(stage === "setup" || stage === "environment" || stage === "tuning") && (
-              <section className="onboarding-card">
+            {(stage === "setup" || stage === "tuning") && (
+              <section className="onboarding-card focused-onboarding">
                 <div className="onboarding-steps">
-                  {["准备", "环境", "调音", "练习"].map((item, index) => {
-                    const stageIndex = stage === "setup" ? 0 : stage === "environment" ? 1 : 2;
+                  {["设备检查", "调音", "练习"].map((item, index) => {
+                    const stageIndex = stage === "setup" ? 0 : 1;
                     return <span key={item} className={index <= stageIndex ? "active" : ""}><i>{index + 1}</i>{item}</span>;
                   })}
                 </div>
 
                 {stage === "setup" && (
-                  <div className="setup-panel">
-                    <div className="panel-illustration setup-illustration" aria-hidden="true">
-                      <span className="phone-shape"><i /></span>
-                      <span className="sound-wave wave-one" />
-                      <span className="sound-wave wave-two" />
-                      <span className="sound-wave wave-three" />
-                    </div>
-                    <div className="panel-copy">
-                      <span className="eyebrow">开始前约 1 分钟</span>
-                      <h1>把手机放在琴码右侧，<br />离琴约一臂距离。</h1>
-                      <ul className="check-list">
-                        <li><span>✓</span>请在安静室内练习</li>
-                        <li><span>✓</span>节拍器请使用耳机</li>
-                        <li><span>✓</span>本次只保存判定结果，不保存录音</li>
-                      </ul>
-                      {micState === "denied" && (
-                        <p className="inline-warning">浏览器没有获得麦克风权限。可以在地址栏重新授权，或先用演示识别体验。</p>
-                      )}
-                      <div className="button-row">
-                        <button className="primary-button" onClick={beginEnvironmentCheck} disabled={micState === "opening"}>
-                          {micState === "opening" ? "正在打开麦克风…" : demoMode ? "开始演示检查" : "授权麦克风并检查"}
-                        </button>
-                        <button className="quiet-button" onClick={() => setDemoMode((value) => !value)}>
-                          <span className={`mode-switch ${demoMode ? "on" : ""}`} />
-                          演示识别
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {stage === "environment" && (
-                  <div className="check-panel">
-                    <div className="level-visual">
-                      <div className={`listening-orb ${environmentChecking ? "is-listening" : ""}`}>
+                  <div className="setup-panel compact-setup">
+                    <div className="preparation-signal" aria-hidden="true">
+                      <div className={`listening-orb ${preparationStatus === "checking" ? "is-listening" : ""}`}>
                         <BrandMark />
                         <span className="pulse-ring ring-one" />
                         <span className="pulse-ring ring-two" />
                       </div>
                       <div className="level-meter"><i style={{ width: `${Math.max(4, liveLevel * 100)}%` }} /></div>
-                      <span>当前环境音量</span>
+                      <small>{preparationStatus === "checking" ? "正在听" : "麦克风音量"}</small>
                     </div>
-                    <div className="panel-copy">
-                      <span className="eyebrow">环境检查</span>
-                      <h1>
-                        {environmentChecking
-                          ? "请保持安静两秒，知音正在听…"
-                          : environmentPassed
-                            ? "环境很好，可以清楚听见琴声。"
-                            : "环境声音有些大，建议关窗或换个位置。"}
-                      </h1>
-                      <p>我们会先听背景噪声，再决定判音阈值。检查片段不会被保存。</p>
-                      {!environmentChecking && (
-                        <div className="button-row">
-                          <button className="primary-button" onClick={() => setStage("tuning")}>
-                            {environmentPassed ? "继续调音检查" : "仍然继续"}
-                          </button>
-                          {!environmentPassed && <button className="quiet-button" onClick={beginEnvironmentCheck}>重新检查</button>}
+                    <div className="panel-copy preparation-copy">
+                      <span className="eyebrow">一次完成 · 约 20 秒</span>
+                      <h1>先确认声音和节拍，<br />再开始调音。</h1>
+                      <p className="placement-note">手机放在琴码右侧约一臂距离，节拍器建议使用耳机。</p>
+
+                      <div className="device-checks">
+                        <div className={`device-check ${micState === "ready" ? "passed" : preparationStatus === "denied" ? "failed" : ""}`}>
+                          <i>{micState === "ready" ? "✓" : "1"}</i><span><strong>麦克风</strong><small>{micState === "ready" ? "已连接，本地分析" : "等待授权"}</small></span>
                         </div>
-                      )}
+                        <div className={`device-check ${preparationStatus === "passed" ? "passed" : ["noisy", "no-signal"].includes(preparationStatus) ? "failed" : ""}`}>
+                          <i>{preparationStatus === "passed" ? "✓" : "2"}</i><span><strong>环境与琴声</strong><small>{preparationStatus === "passed" ? "背景安静，已听到琴声" : "先安静一秒，再轻拨任意琴弦"}</small></span>
+                        </div>
+                        <div className="device-check beat-check">
+                          <i>3</i><span><strong>耳机节拍</strong><small>{metronomeTesting ? "正在播放四拍" : "点击试听，确认能够听见"}</small></span>
+                          <button onClick={testMetronome}>{metronomeTesting ? "试听中" : "试听"}</button>
+                        </div>
+                      </div>
+
+                      <div className="beat-volume">
+                        <span>节拍音量</span>
+                        <input aria-label="节拍音量" type="range" min="0.12" max="0.8" step="0.04" value={metronomeVolume} onChange={(event) => setMetronomeVolume(Number(event.target.value))} />
+                        <div className="beat-dots compact" aria-label="四拍节拍指示">
+                          {[0, 1, 2, 3].map((beat) => <i key={beat} className={activeBeat === beat ? "active" : ""}>{beat + 1}</i>)}
+                        </div>
+                      </div>
+
+                      {preparationStatus === "checking" && <p className="check-message listening">先保持安静一秒，然后轻拨任意一根琴弦。</p>}
+                      {preparationStatus === "no-signal" && <p className="check-message error">没有听到琴声。请靠近琴码、检查麦克风权限后重试。</p>}
+                      {preparationStatus === "noisy" && <p className="check-message error">背景声偏大，评分容易误判。建议关窗或换一个位置。</p>}
+                      {preparationStatus === "denied" && <p className="check-message error">麦克风未授权，请在浏览器地址栏重新允许。</p>}
+                      {preparationStatus === "passed" && <p className="check-message success">设备和环境都可以，下一步检查三根关键琴弦。</p>}
+
+                      <div className="button-row preparation-actions">
+                        {preparationStatus !== "passed" ? (
+                          <button className="primary-button" onClick={beginPreparationCheck} disabled={preparationStatus === "checking" || micState === "opening"}>
+                            {preparationStatus === "checking" || micState === "opening" ? "正在检查…" : preparationStatus === "idle" ? "开始设备检查" : "重新检查"}
+                          </button>
+                        ) : (
+                          <button className="primary-button" onClick={enterTuning}>开始调音</button>
+                        )}
+                        {["noisy", "no-signal", "denied"].includes(preparationStatus) && (
+                          <button className="quiet-button unscored-button" onClick={enterUnscoredPractice}>只看谱练习（不评分）</button>
+                        )}
+                      </div>
+                      <small className="privacy-inline">声音只在本机分析，不保存原始录音。</small>
                     </div>
                   </div>
                 )}
 
                 {stage === "tuning" && (
                   <div className="tuning-panel">
-                    <div className="tuner">
+                    <div className={`tuner tuner-${tuningStatus}`}>
                       <span className="tuner-string">{TUNING_TARGETS[tuningIndex].string}</span>
                       <strong>{livePitch}</strong>
                       <div className="tuner-scale">
                         <span>-50</span><span>-25</span><i /><span>+25</span><span>+50</span>
                         <b style={{ transform: `translateX(${clamp(liveCents, -50, 50) * 2.2}px)` }} />
                       </div>
-                      <p>{demoMode ? "演示模式已模拟校准" : livePitch === "—" ? "请拨响目标琴弦" : Math.abs(liveCents) <= 35 ? "音高在合格范围内" : liveCents > 0 ? "稍高，请微调琴弦" : "稍低，请微调琴弦"}</p>
+                      <p>{tuningMessage}</p>
                     </div>
-                    <div className="panel-copy">
+                    <div className="panel-copy tuning-copy">
                       <span className="eyebrow">调音检查 · {tuningIndex + 1}/{TUNING_TARGETS.length}</span>
                       <h1>请拨响{TUNING_TARGETS[tuningIndex].label}</h1>
-                      <p>目标音为 {noteName(TUNING_TARGETS[tuningIndex].midi)}。音高进入中间绿色区域后确认下一根。</p>
+                      <p>目标音为 {noteName(TUNING_TARGETS[tuningIndex].midi)}。连续两次稳定在 ±{TUNING_TOLERANCE_CENTS} 音分内后自动通过。</p>
+                      <div className="pluck-confirmation" aria-label={`已确认 ${tuningGoodPlucks} 次`}>
+                        <span className={tuningGoodPlucks >= 1 ? "passed" : ""}>{tuningGoodPlucks >= 1 ? "✓" : "第一次"}</span>
+                        <i />
+                        <span className={tuningGoodPlucks >= 2 ? "passed" : ""}>{tuningGoodPlucks >= 2 ? "✓" : "第二次"}</span>
+                      </div>
                       <div className="tuning-progress">
                         {TUNING_TARGETS.map((target, index) => (
                           <span key={target.label} className={tuningPassed[index] ? "passed" : index === tuningIndex ? "current" : ""}>
@@ -955,13 +1151,8 @@ export default function GuzhengApp() {
                           </span>
                         ))}
                       </div>
-                      <button
-                        className="primary-button"
-                        onClick={confirmTuningString}
-                        disabled={!demoMode && livePitch === "—"}
-                      >
-                        {tuningIndex === TUNING_TARGETS.length - 1 ? "完成调音检查" : "确认，下一根"}
-                      </button>
+                      {demoMode && <button className="primary-button" onClick={simulateTuningPluck} disabled={tuningGoodPlucks >= 2}>模拟拨响目标弦</button>}
+                      {!demoMode && <p className="auto-pass-note">无需点击按钮，系统听准后会自动进入下一根。</p>}
                     </div>
                   </div>
                 )}
@@ -980,45 +1171,56 @@ export default function GuzhengApp() {
 
                   {phraseTip && stage === "playing" && (
                     <div className="phrase-feedback">
-                      <BrandMark />
-                      <div><span>刚才这一句</span><strong>{phraseTip}</strong></div>
-                      <button onClick={() => setPhraseTip(null)}>知道了</button>
+                      <div><span>上一句</span><strong>{phraseTip}</strong></div>
                     </div>
                   )}
 
                   <div className="practice-controls">
-                    <div className="speed-control">
-                      <span>练习速度</span>
-                      <div>
-                        {SPEEDS.map((item) => (
-                          <button
-                            key={item}
-                            className={speed === item ? "active" : ""}
-                            onClick={() => setSpeed(item)}
-                            disabled={stage === "playing" || stage === "countdown"}
-                          >
-                            {Math.round(item * 100)}%
-                          </button>
-                        ))}
+                    <div className="practice-live-bar">
+                      <div className="beat-dots" aria-label={`当前第 ${activeBeat + 1} 拍`}>
+                        {[0, 1, 2, 3].map((beat) => <i key={beat} className={activeBeat === beat ? "active" : ""}>{beat + 1}</i>)}
+                      </div>
+                      <div className="listen-status">
+                        <span className={`listening-dot ${stage === "playing" ? "active" : ""}`} />
+                        <div>
+                          <strong>
+                            {stage === "playing"
+                              ? demoMode
+                                ? `模拟数据 · ${livePitch}`
+                                : practiceScoringEnabled
+                                  ? livePitch === "—" ? "正在听 · 等待琴声" : `正在听 · ${livePitch}`
+                                  : "只看谱练习 · 不评分"
+                              : practiceScoringEnabled ? "麦克风与调音已就绪" : "本次只看谱，不生成成绩"}
+                          </strong>
+                          <small>{Math.round(selectedScore.bpm * speed)} BPM · 四拍节拍</small>
+                        </div>
+                        <div className="mini-level"><i style={{ height: `${Math.max(8, liveLevel * 100)}%` }} /></div>
                       </div>
                     </div>
+
+                    {stage === "ready" && (
+                      <div className="speed-control">
+                        <span>练习速度</span>
+                        <div>
+                          {SPEEDS.map((item) => (
+                            <button key={item} className={speed === item ? "active" : ""} onClick={() => setSpeed(item)}>
+                              {Math.round(item * 100)}%
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <div className="transport">
-                      {stage === "ready" && <button className="play-button" onClick={startCountdown} aria-label="开始练习">▶</button>}
-                      {stage === "countdown" && <div className="countdown-number">{countdown}</div>}
+                      {stage === "ready" && <button className="play-button wide-play" onClick={startCountdown} aria-label="开始练习"><span>▶</span> 开始练习</button>}
+                      {stage === "countdown" && <div className="countdown-number"><strong>{countdown}</strong><span>跟着四拍准备</span></div>}
                       {stage === "playing" && <button className="stop-button" onClick={resetPractice}>■ 暂停练习</button>}
                       {stage === "summary" && <button className="play-button replay" onClick={resetPractice} aria-label="再练一次">↻</button>}
-                    </div>
-                    <div className="listen-status">
-                      <span className={`listening-dot ${stage === "playing" ? "active" : ""}`} />
-                      <div><strong>{stage === "playing" ? `正在听 · ${livePitch}` : demoMode ? "演示识别" : "麦克风已就绪"}</strong><small>本地实时分析</small></div>
-                      <div className="mini-level"><i style={{ height: `${Math.max(8, liveLevel * 100)}%` }} /></div>
                     </div>
                   </div>
                 </div>
 
-                <aside className="practice-aside">
-                  {stage === "summary" && summary ? (
-                    <>
+                {stage === "summary" && summary && (
+                  <aside className="practice-aside summary-aside">
                       <span className="eyebrow">本次练习完成</span>
                       <h2>{summary.totalScore >= 90 ? "这一遍很稳。" : "已经听见进步。"}</h2>
                       <div className="summary-rings">
@@ -1032,22 +1234,8 @@ export default function GuzhengApp() {
                       </div>
                       <button className="primary-button full" onClick={resetPractice}>降速循环再练</button>
                       <button className="quiet-button full" onClick={() => setView("records")}>查看完整记录</button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="eyebrow">本次练习</span>
-                      <h2>{selectedScore.focus[0]}</h2>
-                      <p>先保持音位准确，再把速度提起来。每句结束后，知音最多提醒两件事。</p>
-                      <dl className="practice-facts">
-                        <div><dt>曲目速度</dt><dd>{Math.round(selectedScore.bpm * speed)} BPM</dd></div>
-                        <div><dt>评分音符</dt><dd>{selectedScore.notes.filter((note) => note.scored).length} 个</dd></div>
-                        <div><dt>练习乐句</dt><dd>{phraseCount(selectedScore)} 句</dd></div>
-                        <div><dt>判音容差</dt><dd>±{settings.pitchToleranceCents} 音分</dd></div>
-                      </dl>
-                      <div className="privacy-note"><span>◇</span><p><strong>声音留在本机</strong>浏览器只保存音符判定和得分。</p></div>
-                    </>
-                  )}
-                </aside>
+                  </aside>
+                )}
               </div>
             )}
           </div>
@@ -1176,17 +1364,20 @@ export default function GuzhengApp() {
               <button className="quiet-button" onClick={() => setDemoMode((value) => !value)}><span className={`mode-switch ${demoMode ? "on" : ""}`} />{demoMode ? "已开启" : "已关闭"}</button>
               <div><h2>本机练习记录</h2><p>当前保存 {records.length} 条记录。</p></div>
               <button className="danger-button" onClick={clearLocalData}>删除全部记录</button>
+              <div><h2>老师入口</h2><p>曲目管理、评分阈值和学员报告。</p></div>
+              <button className="quiet-button" onClick={() => setView("teacher")}>进入老师工作台</button>
             </div>
           </div>
         )}
       </main>
 
-      <nav className="mobile-nav" aria-label="移动端主导航">
-        <button className={view === "home" ? "active" : ""} onClick={() => setView("home")}><span>⌂</span>练习</button>
-        <button className={view === "records" ? "active" : ""} onClick={() => setView("records")}><span>▥</span>记录</button>
-        <button className={view === "teacher" ? "active" : ""} onClick={() => setView("teacher")}><span>文</span>老师</button>
-        <button className={view === "privacy" ? "active" : ""} onClick={() => setView("privacy")}><span>◇</span>设置</button>
-      </nav>
+      {view !== "practice" && (
+        <nav className="mobile-nav" aria-label="移动端主导航">
+          <button className={view === "home" ? "active" : ""} onClick={() => setView("home")}><span>⌂</span>练习</button>
+          <button className={view === "records" ? "active" : ""} onClick={() => setView("records")}><span>▥</span>记录</button>
+          <button className={view === "privacy" || view === "teacher" ? "active" : ""} onClick={() => setView("privacy")}><span>◇</span>设置</button>
+        </nav>
+      )}
 
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
