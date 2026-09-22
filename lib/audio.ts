@@ -45,7 +45,7 @@ export class LocalAudio {
         this.stream.getAudioTracks()[0]?.getSettings() ?? null;
       await this.context.resume();
       await this.context.audioWorklet.addModule(
-        `${location.pathname.replace(/\/$/, "")}/capture-worklet.js`,
+        `${location.pathname.replace(/\/$/, "")}/capture-worklet.js?v=0.3.0`,
       );
       this.node = new AudioWorkletNode(this.context, "zheng-capture");
       this.context.createMediaStreamSource(this.stream).connect(this.node);
