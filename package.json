@@ -1,18 +1,24 @@
 {
   "name": "zhiyin-guzheng-practice",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "vinext dev",
-    "build": "vinext build",
+    "dev": "next dev --hostname 127.0.0.1 --port 3219",
+    "build": "next build",
     "build:pages": "next build",
-    "start": "vinext start",
-    "test": "npm run build && node --test tests/*.test.mjs",
+    "start": "next start --hostname 127.0.0.1 --port 3219",
+    "test": "node --test --test-isolation=none tests/music-core.test.mjs tests/practice.test.mjs tests/capture.test.mjs tests/tuning-sweep.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "build:sites": "vinext build",
+    "test:render": "node --test --test-isolation=none tests/rendered-html.test.mjs",
+    "test:browser": "node tests/browser-smoke.mjs",
+    "test:audio": "node tests/browser-audio.mjs",
+    "typecheck": "tsc --noEmit",
+    "test:sweep": "node tests/browser-sweep.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
@@ -31,6 +37,8 @@
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
+    "playwright": "^1.62.1",
+    "prettier": "^3.6.2",
     "react-server-dom-webpack": "19.2.6",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",

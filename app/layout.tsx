@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "./practice.css";
 
 export function generateMetadata(): Metadata {
   const origin =
@@ -17,8 +18,8 @@ export function generateMetadata(): Metadata {
     description,
     applicationName: "知音古筝智能陪练",
     icons: {
-      icon: "/favicon.svg",
-      shortcut: "/favicon.svg",
+      icon: `${process.env.GITHUB_PAGES === "true" ? "/zhiyin-guzheng-practice" : ""}/favicon.svg`,
+      shortcut: `${process.env.GITHUB_PAGES === "true" ? "/zhiyin-guzheng-practice" : ""}/favicon.svg`,
     },
     openGraph: {
       title,
@@ -39,7 +40,6 @@ export function generateMetadata(): Metadata {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
   themeColor: "#f3efe5",
 };
 

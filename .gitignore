@@ -41,3 +41,5 @@ next-env.d.ts
 /outputs/
 /work/
 .dev-server.log
+*.tsbuildinfo
+lint-report.json
