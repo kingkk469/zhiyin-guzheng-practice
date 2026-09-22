@@ -1,5 +1,5 @@
 /** Pure, versioned practice rules. Audio and UI must not move the reference clock. */
-export const RULE_VERSION = "0.2.0-trial";
+export const RULE_VERSION = "0.3.0-trial";
 export type Note = {
   id: string;
   midi: number | null;

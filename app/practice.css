@@ -1572,3 +1572,178 @@
     max-height: 520px;
   }
 }
+/* Revision: fixed notation rows, continuous cursor, no per-note viewport scrolling. */
+.string-guide {
+  grid-column: 1/-1;
+  border: 1px solid var(--line);
+  background: #faf7ef;
+  padding: 24px;
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: 24px;
+  margin: 18px 0 28px;
+  align-items: center;
+}
+.string-guide h2 {
+  font-size: 23px;
+  line-height: 1.5;
+  margin: 12px 0;
+}
+.string-guide p {
+  line-height: 1.85;
+  font-size: 14px;
+}
+.string-guide svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.string-guide small {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.tuning-readout {
+  grid-column: 1/-1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.tuning-readout small {
+  width: 100%;
+}
+.numbered-sheet {
+  background: #fffdf8;
+}
+.score-paper {
+  max-height: 65vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+}
+.numbered-score {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.numbered-score text {
+  fill: inherit;
+}
+.numbered-score .measure-number {
+  font: 12px sans-serif;
+  fill: #777;
+}
+.numbered-score [role="button"] {
+  cursor: pointer;
+}
+.score-playhead {
+  pointer-events: none;
+}
+.v-sweep-grid {
+  max-height: none;
+  overflow: visible;
+}
+.v-sweep-row {
+  position: relative;
+  gap: 0;
+  padding: 24px 0;
+  border-bottom: 1px solid #c8c2b3;
+}
+.v-sweep-note,
+.v-sweep-note.correct,
+.v-sweep-note.high,
+.v-sweep-note.low,
+.v-sweep-note.uncertain,
+.v-sweep-note.missed,
+.v-sweep-note.target {
+  background: transparent;
+  border-radius: 0;
+  border: 0;
+  border-right: 1px solid #ddd4c6;
+  box-shadow: none;
+}
+.v-sweep-note.target:before {
+  display: none;
+}
+.v-sweep-note strong {
+  font-size: 38px;
+}
+.v-sweep-note .v-octave {
+  height: 14px;
+  line-height: 14px;
+}
+.v-sweep-note.correct {
+  color: #355f51;
+}
+.v-sweep-note.high,
+.v-sweep-note.low {
+  color: #a34e24;
+}
+.sweep-playhead {
+  position: absolute;
+  top: 30px;
+  bottom: 54px;
+  width: 12px;
+  border-left: 2px solid #b44336;
+  background: #b4433626;
+  z-index: 2;
+  pointer-events: none;
+  transition: left 45ms linear;
+}
+.sweep-playhead:before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: -5px;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 6px solid #b44336;
+}
+@media (max-width: 700px) {
+  .string-guide {
+    grid-template-columns: 1fr;
+    padding: 16px;
+    gap: 10px;
+  }
+  .string-guide h2 {
+    font-size: 20px;
+  }
+  .v-sweep-note strong {
+    font-size: 27px;
+  }
+  .v-sweep-note {
+    padding: 10px 1px;
+  }
+  .v-sweep-note b {
+    font-size: 9px;
+  }
+  .v-sweep-note small {
+    font-size: 9px;
+  }
+  .numbered-sheet {
+    padding: 15px;
+  }
+  .numbered-sheet .v-sheet-heading h2 {
+    font-size: 25px;
+  }
+}
+.v-sweep-grid.is-running {
+  max-height: 60vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+}
+.tuning-diagnostics {
+  grid-column: 1/-1;
+  font-size: 12px;
+  color: var(--ink-soft);
+  padding: 10px 0;
+}
+.tuning-diagnostics summary {
+  cursor: pointer;
+}
+.tuning-diagnostics p {
+  line-height: 1.7;
+  margin: 10px 0;
+}

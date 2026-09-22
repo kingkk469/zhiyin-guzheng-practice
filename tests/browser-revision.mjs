@@ -1,0 +1,30 @@
+import {chromium} from 'playwright';
+import assert from 'node:assert/strict';
+const browser=await chromium.launch({channel:'msedge',headless:true});
+const page=await browser.newPage({viewport:{width:844,height:390}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+try{
+ await page.goto(process.env.TEST_BASE_URL??'http://127.0.0.1:3219/');
+ await page.getByRole('button',{name:'开始校音 →',exact:true}).click();
+ await page.getByRole('region',{name:'新手拨弦示意图'}).waitFor();
+ assert.equal(await page.locator('.v-sweep-note').count(),21);
+ await page.locator('.string-guide').screenshot({path:'outputs/string-guide-revision.png'});
+ await page.getByRole('button',{name:'返回练习首页'}).click();
+ await page.getByRole('button',{name:'练习勾托指序',exact:true}).click();
+ await page.locator('.score-symbol').first().waitFor();
+ assert.equal(await page.locator('.score-symbol').count(),15);
+ await page.getByLabel('基础速度',{exact:true}).fill('120');
+ await page.getByLabel('无琴体验 · 模拟演奏').check();
+ await page.getByRole('button',{name:'▶ 开始练习',exact:true}).click();
+ await page.locator('.score-playhead').waitFor({timeout:10000});
+ const before=await page.locator('.score-playhead').getAttribute('transform');
+ const scroll=await page.evaluate(()=>window.scrollY);
+ await page.waitForTimeout(220);
+ const after=await page.locator('.score-playhead').getAttribute('transform');
+ assert.notEqual(before,after);assert.equal(await page.evaluate(()=>window.scrollY),scroll);
+ await page.locator('.numbered-sheet').screenshot({path:'outputs/numbered-score-revision.png'});
+ await page.getByRole('button',{name:'暂停',exact:true}).click();
+ await page.setViewportSize({width:390,height:844});
+ await page.waitForTimeout(150);
+ assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+ assert.deepEqual(errors,[]);console.log('Revision UI: diagram, 15 notation symbols, moving cursor without page scroll, phone layout passed');
+}finally{await browser.close();}

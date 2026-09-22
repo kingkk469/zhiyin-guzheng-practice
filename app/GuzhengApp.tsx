@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import Sheet from "./NumberedSheet";
+import StringGuide from "./StringGuide";
 import TuningSweepPanel from "./TuningSweepPanel";
 import { TuningSweep, type SweepView } from "../lib/tuning-sweep";
 import { LocalAudio, type Frame } from "../lib/audio";
@@ -13,10 +15,8 @@ import {
   RULE_VERSION,
   type Score,
   type Report,
-  type Timeline,
-  type Evaluation,
 } from "../lib/practice-core";
-import { SCORES, notation } from "../lib/scores";
+import { SCORES } from "../lib/scores";
 import { noteName } from "../lib/music-core.mjs";
 type Page = "home" | "tune" | "score" | "report" | "history" | "content";
 type Stage = "ready" | "countdown" | "playing" | "paused";
@@ -40,16 +40,6 @@ const date = (s: string) =>
     hour: "2-digit",
     minute: "2-digit",
   });
-const label = (e?: Evaluation) =>
-  !e
-    ? "待弹"
-    : e.kind === "uncertain"
-      ? "? 未判断"
-      : e.kind === "missed"
-        ? "− 漏音"
-        : e.kind === "extra"
-          ? "+ 多弹"
-          : `${e.pitch === false ? "× 错音" : e.pitch === true ? "✓ 音准" : "音高不评分"}${e.rhythm !== undefined && e.rhythm < 1 ? (e.offset! < 0 ? " · 早了" : " · 晚了") : ""}`;
 function read<T>(key: string, fallback: T): T {
   try {
     return JSON.parse(localStorage.getItem(key) ?? "null") ?? fallback;
@@ -82,132 +72,6 @@ function download(data: Blob, name: string) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-function Sheet({
-  score,
-  timeline,
-  report,
-  engine,
-  elapsed = -10,
-  onBar,
-}: {
-  score: Score;
-  timeline: Timeline;
-  report?: Report | null;
-  engine?: PracticeEngine;
-  elapsed?: number;
-  onBar?: (m: number) => void;
-}) {
-  const data = new Map(
-    (report?.evaluations ?? [...(engine?.results.values() ?? [])]).map((e) => [
-      e.key,
-      e,
-    ]),
-  );
-  const expected = timeline.events.find(
-      (n) => elapsed >= n.time && elapsed < n.end,
-    )?.key,
-    actual = engine?.timeline.events[engine.lastMatched]?.key;
-  const activeMeasure = timeline.bars.find(
-      (b) => elapsed >= b.start && elapsed < b.end,
-    )?.measure,
-    grid = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (activeMeasure !== undefined)
-      grid.current
-        ?.querySelector(`[data-measure="${activeMeasure}"]`)
-        ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [activeMeasure]);
-  return (
-    <section className="v-sheet" aria-label={`${score.title}电子简谱`}>
-      <div className="v-sheet-heading">
-        <div>
-          <span className="eyebrow">
-            D 调 · 21 弦 · {score.meter.join("/")}
-          </span>
-          <h2>{score.title}</h2>
-        </div>
-        <div className="v-tempo">
-          ♩ = {timeline.bpm}
-          <small>本次速度 · 原谱 {score.bpm}</small>
-        </div>
-      </div>
-      <div className="v-bars" ref={grid}>
-        {timeline.bars.map((b) => (
-          <div
-            className={`v-bar ${b.measure === activeMeasure ? "current-bar" : ""}`}
-            key={b.measure}
-            data-measure={b.measure}
-          >
-            <button
-              className="v-bar-index"
-              onClick={() => onBar?.(b.measure)}
-              disabled={!onBar}
-              aria-label={`查看第${b.measure}小节`}
-            >
-              {String(b.measure).padStart(2, "0")}
-              <small>
-                {timeline.bars.filter((x) => x.source === b.source).length > 1
-                  ? `原谱${b.source + 1}`
-                  : ""}
-              </small>
-            </button>
-            <div className="v-notes">
-              {timeline.events
-                .filter((n) => n.measure === b.measure)
-                .map((n) => {
-                  const x = notation(n.midi),
-                    e = data.get(n.key),
-                    unsupported = n.midi !== null && !n.pitch && !n.rhythm;
-                  return (
-                    <div
-                      key={n.key}
-                      style={{ flex: n.duration }}
-                      className={`v-note ${e?.kind ?? ""} ${e?.rhythm !== undefined && e.rhythm < 1 ? "timing" : ""} ${expected === n.key ? "target" : ""} ${actual === n.key ? "heard" : ""} ${unsupported ? "unsupported" : ""}`}
-                      title={unsupported ? "此技法段不评分" : label(e)}
-                    >
-                      <span className="v-octave">
-                        {x.octave > 0 ? "·".repeat(x.octave) : " "}
-                      </span>
-                      <strong>{x.digit}</strong>
-                      <span className="v-octave lower">
-                        {x.octave < 0 ? "·".repeat(-x.octave) : " "}
-                      </span>
-                      <span className="v-duration">
-                        {n.duration >= 2
-                          ? "—".repeat(Math.floor(n.duration) - 1)
-                          : n.duration < 1
-                            ? "▔"
-                            : n.duration === 1.5
-                              ? "·"
-                              : " "}
-                      </span>
-                      <small>
-                        {unsupported
-                          ? "技法 · 不评分"
-                          : e
-                            ? label(e)
-                            : n.midi === null
-                              ? "休止"
-                              : `${n.duration}拍`}
-                      </small>
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="v-legend">
-        <span>▾ 目标拍点</span>
-        <span>○ 实际位置</span>
-        <span>✓ 正确</span>
-        <span>× 错音</span>
-        <span>早／晚 节奏</span>
-        <span>? 未判断</span>
-      </div>
-    </section>
-  );
-}
 export default function GuzhengApp() {
   const [page, setPage] = useState<Page>("home"),
     [score, setScore] = useState<Score>(SCORES[0]),
@@ -217,6 +81,7 @@ export default function GuzhengApp() {
     [to, setTo] = useState(4),
     [message, setMessage] = useState("");
   const [mic, setMic] = useState(false),
+    [inputRate, setInputRate] = useState<number | null>(null),
     [opening, setOpening] = useState(false),
     [demo, setDemo] = useState(false),
     [records, setRecords] = useState<Report[]>([]),
@@ -370,6 +235,7 @@ export default function GuzhengApp() {
       audio.current ??= new LocalAudio();
       await audio.current.open();
       setMic(true);
+      setInputRate(audio.current.context?.sampleRate ?? null);
       noise.current = [];
       checkingUntil.current = audio.current.time + 1.2;
       environmentOK.current = false;
@@ -1007,10 +873,67 @@ export default function GuzhengApp() {
               <small>
                 {frame && frame.peak > 0.98
                   ? "声音过载，请把设备移远"
-                  : frame && frame.rms < 0.005
+                  : frame && frame.rms < 0.0005
                     ? "没有声音，请拨响目标琴弦"
                     : "采音仅在本机处理"}
               </small>
+              <div className="tuning-readout" aria-live="polite">
+                <b>
+                  实际听到：
+                  {frame?.midi != null
+                    ? `${noteName(frame.midi)} · ${(440 * 2 ** ((frame.midi - 69) / 12)).toFixed(1)} Hz`
+                    : "等待清晰的单根琴声"}
+                </b>
+                <span>标准音高 A4 = 440 Hz · D调21弦</span>
+                <small>
+                  {frame?.midi != null
+                    ? `清晰度 ${Math.round(frame.confidence * 100)}% · 请对照弦号，不要看到偏差就直接拧琴钉。`
+                    : "先单拨一根，不要扫弦；琴码左侧不要按弦。"}
+                </small>
+              </div>
+              <details className="tuning-diagnostics">
+                <summary>识别异常？查看采音信息</summary>
+                <p>
+                  采样率：{inputRate ?? "—"} Hz ·
+                  算法：Pitchy / MPM · A4 = 440 Hz
+                </p>
+                <p>
+                  若你的调音器读数正常而这里不同，先保留琴的调弦。以下文件只含检测数值及设备设置，不含录音，不会自动上传。
+                </p>
+                <button
+                  className="secondary-button"
+                  disabled={!mic}
+                  onClick={() =>
+                    download(
+                      new Blob(
+                        [
+                          JSON.stringify(
+                            {
+                              version: RULE_VERSION,
+                              browser: navigator.userAgent,
+                              sampleRate: audio.current?.context?.sampleRate,
+                              settings: audio.current?.inputSettings,
+                              mode: tuneMode,
+                              targetString:
+                                tuneMode === "fine"
+                                  ? tuning.index + 1
+                                  : sweepView.cursor + 1,
+                              frame,
+                              sweep: sweepView,
+                            },
+                            null,
+                            2,
+                          ),
+                        ],
+                        { type: "application/json" },
+                      ),
+                      "古筝采音检测信息.json",
+                    )
+                  }
+                >
+                  保存检测信息（不含录音）
+                </button>
+              </details>
               <p className="v-note-text">
                 每根弦需在 ±15
                 音分内稳定约0.5秒。请勿同时拨响多根弦；当前参数仍待老师试弹确认。
@@ -1040,6 +963,13 @@ export default function GuzhengApp() {
                 </button>
               </div>
             </div>
+            <StringGuide
+              current={
+                tuneMode === "fine"
+                  ? tuning.index
+                  : Math.max(0, sweepView.cursor)
+              }
+            />
             {tuneMode === "fine" && (
               <div className="v-tuner">
                 <span>
@@ -1772,7 +1702,8 @@ export default function GuzhengApp() {
               <summary>当前能力与验收状态</summary>
               <p>
                 规则版本 {RULE_VERSION}
-                。本地YIN基础音高与音头检测为实验实现。声音节拍器在完成播放干扰实测前不开放；当前仅提供视觉节拍。首批曲谱、速度范围、误报率与输入时差均待老师和真实设备验收。
+                。本地Pitchy /
+                MPM音高与音头检测仍待真琴验证。声音节拍器在完成播放干扰实测前不开放；当前仅提供视觉节拍。首批曲谱、速度范围、误报率与输入时差均待老师和真实设备验收。
               </p>
               <p>
                 推荐 Safari /
@@ -1786,7 +1717,7 @@ export default function GuzhengApp() {
       <footer className="v-footer">
         <span>知音 · 数字生命 King</span>
         <span>先调准，再练稳。</span>
-        <span>本地试验版 V0.2</span>
+        <span>试用版 V0.3</span>
       </footer>
     </div>
   );

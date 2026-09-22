@@ -104,3 +104,24 @@ test("stopping retains confirmed strings but never completes untouched strings",
   s.start(100);
   assert.equal(s.results[0].status, "pending");
 });
+
+test("unclear attack can recover from subsequent stable frames without another pluck", () => {
+  const s = new TuningSweep();
+  s.start(0);
+  s.feed({
+    time: s.startTime + 0.07,
+    midi: null,
+    confidence: 0,
+    peak: 0.2,
+    attack: s.startTime,
+  });
+  for (let j = 0; j < 24; j++)
+    s.feed({
+      time: s.startTime + 0.12 + j * 0.025,
+      midi: 86,
+      confidence: 0.99,
+      peak: 0.2,
+      attack: null,
+    });
+  assert.equal(s.results[0].status, "correct");
+});

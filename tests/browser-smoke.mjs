@@ -7,7 +7,7 @@ const page = await browser.newPage({ viewport: { width: 1365, height: 1000 } }),
 page.on("pageerror", (e) => errors.push(e.message));
 await mkdir("outputs", { recursive: true });
 try {
-  await page.goto("http://127.0.0.1:3219/");
+  await page.goto(process.env.TEST_BASE_URL ?? "http://127.0.0.1:3219/");
   await page.getByRole("heading", { name: /每一个音/ }).waitFor();
   assert.equal(await page.locator(".v-card").count(), 10);
   await page.screenshot({ path: "outputs/home-desktop.png", fullPage: true });

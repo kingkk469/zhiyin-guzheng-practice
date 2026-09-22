@@ -7,7 +7,7 @@ const browser = await chromium.launch({ channel: "msedge", headless: true });
 const page = await browser.newPage({ viewport: { width: 1365, height: 1000 } }),
   errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
-await page.addInitScript(() => {
+await page.addInitScript((amplitude) => {
   navigator.mediaDevices.getUserMedia = async () => {
     const context = new AudioContext(),
       dest = context.createMediaStreamDestination();
@@ -23,8 +23,8 @@ await page.addInitScript(() => {
             at = start + i * spacing;
           osc.frequency.value = 440 * 2 ** ((m - 69) / 12);
           amp.gain.setValueAtTime(0.00001, at);
-          amp.gain.exponentialRampToValueAtTime(0.25, at + 0.008);
-          amp.gain.setValueAtTime(0.25, at + spacing * 0.7);
+          amp.gain.exponentialRampToValueAtTime(amplitude, at + 0.008);
+          amp.gain.setValueAtTime(amplitude, at + spacing * 0.7);
           amp.gain.exponentialRampToValueAtTime(0.00001, at + spacing * 0.9);
           osc.connect(amp).connect(dest);
           osc.start(at);
@@ -34,9 +34,9 @@ await page.addInitScript(() => {
     };
     return dest.stream;
   };
-});
+}, Number(process.env.TEST_AUDIO_AMPLITUDE ?? 0.25));
 try {
-  await page.goto("http://127.0.0.1:3219/");
+  await page.goto(process.env.TEST_BASE_URL ?? "http://127.0.0.1:3219/");
   await page.getByRole("button", { name: "开始校音 →", exact: true }).click();
   await page.locator(".v-sweep-note").first().waitFor();
   assert.equal(await page.locator(".v-sweep-note").count(), 21);

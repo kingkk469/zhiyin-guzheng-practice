@@ -2,12 +2,19 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
 import { readFileSync } from "node:fs";
-import { detectPitchYin, hzToMidi } from "../lib/music-core.mjs";
+import { hzToMidi } from "../lib/music-core.mjs";
+import { InstrumentPitchDetector } from "../lib/pitch-detector.mjs";
+const detector = new InstrumentPitchDetector();
 const source = readFileSync(
   new URL("../public/capture-worklet.js", import.meta.url),
   "utf8",
 );
-function capture(midiNotes, spacing = 0.5, sampleRate = 48000) {
+function capture(
+  midiNotes,
+  spacing = 0.5,
+  sampleRate = 48000,
+  amplitude = 0.23,
+) {
   const messages = [];
   let Processor;
   const context = vm.createContext({
@@ -35,7 +42,7 @@ function capture(midiNotes, spacing = 0.5, sampleRate = 48000) {
         if (age < 0 || age > 1.5) continue;
         const hz = 440 * 2 ** ((midiNotes[n] - 69) / 12);
         samples[j] +=
-          0.23 *
+          amplitude *
           Math.exp(-age * 8) *
           (Math.sin(age * hz * 2 * Math.PI) +
             0.3 * Math.sin(age * hz * 4 * Math.PI));
@@ -47,10 +54,7 @@ function capture(midiNotes, spacing = 0.5, sampleRate = 48000) {
     .filter((x) => x.attack !== null)
     .map((x) => ({
       ...x,
-      ...detectPitchYin(x.frame, x.sampleRate, {
-        minFrequency: 65,
-        maxFrequency: 1300,
-      }),
+      ...detector.detect(x.frame, x.sampleRate),
     }));
 }
 test("worklet captures consecutive same-note eighths with sample-clock timestamps", () => {
@@ -74,4 +78,12 @@ test("worklet handles representative low/high strings at 44.1 and 48 kHz", () =>
       ),
     );
   }
+});
+
+test("worklet detects quiet plucks previously below fixed onset threshold", () => {
+  const result = capture([62, 74], 1, 48000, 0.004);
+  assert.equal(result.length, 2);
+  result.forEach((r, i) =>
+    assert.ok(Math.abs(hzToMidi(r.frequency) - [62, 74][i]) < 0.15),
+  );
 });

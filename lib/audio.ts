@@ -1,4 +1,5 @@
-import { detectPitchYin, hzToMidi } from "./music-core.mjs";
+import { hzToMidi } from "./music-core.mjs";
+import { InstrumentPitchDetector } from "./pitch-detector.mjs";
 export type Frame = {
   time: number;
   midi: number | null;
@@ -18,6 +19,8 @@ export class LocalAudio {
   onFrame: (f: Frame) => void = () => {};
   onInterrupted: () => void = () => {};
   closed = false;
+  detector = new InstrumentPitchDetector();
+  inputSettings: MediaTrackSettings | null = null;
   async open() {
     this.closed = false;
     if (this.context?.state === "running" && this.stream?.active) return;
@@ -38,6 +41,8 @@ export class LocalAudio {
         video: false,
       });
       this.context = new AudioContext({ latencyHint: "interactive" });
+      this.inputSettings =
+        this.stream.getAudioTracks()[0]?.getSettings() ?? null;
       await this.context.resume();
       await this.context.audioWorklet.addModule(
         `${location.pathname.replace(/\/$/, "")}/capture-worklet.js`,
@@ -49,10 +54,7 @@ export class LocalAudio {
       this.node.connect(mute).connect(this.context.destination);
       this.node.port.onmessage = ({ data }) => {
         if (this.closed) return;
-        const result = detectPitchYin(data.frame, data.sampleRate, {
-          minFrequency: 65,
-          maxFrequency: 1300,
-        });
+        const result = this.detector.detect(data.frame, data.sampleRate);
         this.onFrame({
           time: data.time,
           midi: result.frequency > 0 ? hzToMidi(result.frequency) : null,

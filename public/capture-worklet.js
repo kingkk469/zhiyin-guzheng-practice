@@ -2,7 +2,7 @@
 class ZhengCapture extends AudioWorkletProcessor {
   constructor() {
     super();
-    this.buffer = new Float32Array(1024);
+    this.buffer = new Float32Array(4096);
     this.pos = 0;
     this.decimate = 0;
     this.hop = 0;
@@ -11,7 +11,7 @@ class ZhengCapture extends AudioWorkletProcessor {
     this.lastAttack = -10;
     this.pending = null;
     this.clipped = 0;
-    this.factor = Math.max(1, Math.round(sampleRate / 12000));
+    this.factor = 1;
     this.sum = 0;
   }
   process(inputs) {
@@ -27,7 +27,7 @@ class ZhengCapture extends AudioWorkletProcessor {
       this.decimate++;
       if (this.decimate >= this.factor) {
         this.buffer[this.pos] = this.sum / this.factor;
-        this.pos = (this.pos + 1) % 1024;
+        this.pos = (this.pos + 1) % this.buffer.length;
         this.sum = 0;
         this.decimate = 0;
         this.hop++;
@@ -37,8 +37,8 @@ class ZhengCapture extends AudioWorkletProcessor {
       time = currentTime;
     this.fast = this.fast * 0.35 + rms * 0.65;
     if (
-      this.fast > 0.014 &&
-      this.fast > this.slow * 1.65 + 0.004 &&
+      this.fast > 0.0015 &&
+      this.fast > this.slow * 1.65 + 0.0003 &&
       time - this.lastAttack > 0.095
     ) {
       this.lastAttack = time;
@@ -46,11 +46,11 @@ class ZhengCapture extends AudioWorkletProcessor {
     }
     this.slow = this.slow * 0.93 + this.fast * 0.07;
     this.clipped = Math.max(this.clipped, peak);
-    if (this.hop >= 256) {
+    if (this.hop >= sampleRate * 0.02) {
       this.hop = 0;
-      const frame = new Float32Array(1024);
-      for (let i = 0; i < 1024; i++)
-        frame[i] = this.buffer[(this.pos + i) % 1024];
+      const frame = new Float32Array(this.buffer.length);
+      for (let i = 0; i < frame.length; i++)
+        frame[i] = this.buffer[(this.pos + i) % frame.length];
       const attack =
         this.pending !== null && time - this.pending >= 0.07
           ? this.pending

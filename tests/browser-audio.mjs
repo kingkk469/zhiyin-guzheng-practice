@@ -35,7 +35,7 @@ await page.addInitScript(() => {
   };
 });
 try {
-  await page.goto("http://127.0.0.1:3219/");
+  await page.goto(process.env.TEST_BASE_URL ?? "http://127.0.0.1:3219/");
   await page.getByRole("button", { name: "开始校音 →", exact: true }).click();
   await page.getByRole("button", { name: "逐弦精调", exact: true }).click();
   await page.getByRole("button", { name: "开启麦克风", exact: true }).click();

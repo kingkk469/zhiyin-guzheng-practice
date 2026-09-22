@@ -27,8 +27,22 @@ export default function TuningSweepPanel({
   onFine: (index: number) => void;
   onSpeed: (speed: number) => void;
 }) {
-  const active = view.phase === "countdown" || view.phase === "running",
-    grid = useRef<HTMLDivElement>(null);
+  const active = view.phase === "countdown" || view.phase === "running";
+  const grid = useRef<HTMLDivElement>(null);
+  const row = Math.max(0, Math.floor(view.cursor / 7));
+  useEffect(() => {
+    const el = grid.current;
+    if (!el || !active) return;
+    const target = el.querySelector(`[data-row="${row}"]`);
+    if (!target) return;
+    const rect = target.getBoundingClientRect(),
+      parent = el.getBoundingClientRect();
+    if (rect.bottom > parent.bottom || rect.top < parent.top)
+      el.scrollTo({
+        top: el.scrollTop + rect.top - parent.top,
+        behavior: "instant",
+      });
+  }, [row, active]);
   const correct = view.results.filter((r) => r.status === "correct").length,
     adjust = view.results.filter(
       (r) => r.status === "high" || r.status === "low",
@@ -36,12 +50,6 @@ export default function TuningSweepPanel({
     unknown = view.results.filter(
       (r) => r.status === "uncertain" || r.status === "missed",
     ).length;
-  useEffect(() => {
-    if (active)
-      grid.current
-        ?.querySelector(`[data-row="${Math.floor(view.cursor / 7)}"]`)
-        ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [view.cursor, active]);
   return (
     <section className="v-sweep" aria-label="21弦动态校音谱">
       <div className="v-sheet-heading">
@@ -94,9 +102,18 @@ export default function TuningSweepPanel({
               : "重新巡检"}
         </button>
       </div>
-      <div className="v-sweep-grid" ref={grid}>
+      <div className={`v-sweep-grid ${active ? "is-running" : ""}`} ref={grid}>
         {[0, 1, 2].map((row) => (
           <div className="v-sweep-row" key={row} data-row={row}>
+            {view.phase === "running" &&
+              Math.floor(view.cursor / 7) === row && (
+                <i
+                  className="sweep-playhead"
+                  style={{
+                    left: `${Math.min(97, ((view.elapsed / view.interval - row * 7 + 0.5) / 7) * 100)}%`,
+                  }}
+                />
+              )}
             {STRINGS.slice(row * 7, row * 7 + 7).map((m, j) => {
               const i = row * 7 + j,
                 x = notation(m),
@@ -133,7 +150,7 @@ export default function TuningSweepPanel({
         ))}
       </div>
       <div className="v-legend">
-        <span>▾ 下一拍目标</span>
+        <span>红线：目标拍点</span>
         <span>○ 最近拨响</span>
         <span>↑ 偏高</span>
         <span>↓ 偏低</span>

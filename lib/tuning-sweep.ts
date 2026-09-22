@@ -25,6 +25,7 @@ export class TuningSweep {
   interval = 1.25;
   elapsed = -5;
   heard: number | null = null;
+  waitingAttack: number | null = null;
   results: SweepResult[] = STRINGS.map(() => ({
     status: "pending",
     cents: null,
@@ -41,6 +42,7 @@ export class TuningSweep {
     this.phase = "countdown";
     this.heard = null;
     this.pending = null;
+    this.waitingAttack = null;
     this.results = STRINGS.map(() => ({ status: "pending", cents: null }));
   }
   get active() {
@@ -77,6 +79,7 @@ export class TuningSweep {
   stop() {
     if (!this.active) return;
     this.closePending();
+    this.waitingAttack = null;
     this.phase = "stopped";
   }
   feed(f: Frame) {
@@ -84,9 +87,15 @@ export class TuningSweep {
     this.tick(f.time);
     if (!this.active) return;
     if (f.attack !== null) {
-      const relative = f.attack - this.startTime;
-      if (relative < -0.45 || relative > 20 * this.interval + 0.6) return;
       this.closePending();
+      this.waitingAttack = f.attack;
+    }
+    if (this.waitingAttack !== null && f.time - this.waitingAttack > 0.3)
+      this.waitingAttack = null;
+    if (this.waitingAttack !== null) {
+      const attack = this.waitingAttack;
+      const relative = attack - this.startTime;
+      if (relative < -0.45 || relative > 20 * this.interval + 0.6) return;
       const slot = clamp(Math.round(relative / this.interval), 0, 20);
       // At most one neighboring time slot, within 75 cents. Large deviations are ambiguous,
       // not proof that the expected string is out of tune (could be a wrong string or octave).
@@ -108,7 +117,8 @@ export class TuningSweep {
       }
       const index = candidates[0].index;
       this.heard = index;
-      this.pending = { index, attack: f.attack, frames: [] };
+      this.pending = { index, attack, frames: [] };
+      this.waitingAttack = null;
     }
     const p = this.pending;
     if (!p) return;
