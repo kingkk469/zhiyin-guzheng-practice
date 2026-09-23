@@ -77,12 +77,13 @@ try {
     .getByRole("button", { name: "校音完成，去练习 →", exact: true })
     .click();
   await page.getByLabel("基础速度", { exact: true }).fill("120");
+  await page.getByLabel("我已用耳机隔离节拍声").check();
   await page.getByRole("button", { name: "▶ 开始练习", exact: true }).click();
   await page.evaluate(() =>
     window.__syntheticInput.play(
       [62, 64, 66, 69, 71, 69, 66, 64, 62, 66, 64, 69, 66, 64, 62],
       0.5,
-      3.94,
+      2.06,
     ),
   );
   await page

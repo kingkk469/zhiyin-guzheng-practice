@@ -136,10 +136,10 @@ test("linear BPM ramp integrated exactly and proportionally", () => {
   assert.ok(Math.abs(secondsAt(s, 40, 8) / secondsAt(s, 60, 8) - 1.5) < 1e-8);
   assert.equal(perfect(s).report(s, true).rhythmScore, 100);
 });
-test("section starts at zero with two measures count-in", () => {
+test("section starts at zero with one measure count-in", () => {
   const t = makeTimeline(SCORES[7], 60, 3, 4);
   assert.equal(t.events[0].time, 0);
-  assert.ok(Math.abs(t.countIn - 8 / 0.9) < 1e-8);
+  assert.ok(Math.abs(t.countIn - 4 / 0.9) < 1e-8);
   assert.equal(t.from, 3);
 });
 test("repeat order creates distinct event keys without duplicating source notes", () => {

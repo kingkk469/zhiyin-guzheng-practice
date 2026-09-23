@@ -2037,3 +2037,5 @@
 }
 
 @media (max-width:700px) { .compact-fine .mobile-tune-toolbar { margin-bottom:0; } }
+
+.metronome-settings { border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 10px; margin-top: 12px; }

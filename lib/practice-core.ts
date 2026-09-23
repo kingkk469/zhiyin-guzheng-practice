@@ -330,7 +330,7 @@ export function makeTimeline(
     bars,
     beats,
     duration: time(to * bpb),
-    countIn: (2 * bpb * 60) / (bpm * ratioAt(s, begin)),
+    countIn: (bpb * 60) / (bpm * ratioAt(s, begin)),
     bpm,
     from,
     to,

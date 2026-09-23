@@ -8,6 +8,14 @@ const page = await browser.newPage({ viewport: { width: 1365, height: 1000 } }),
   errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 await page.addInitScript(() => {
+  window.__clicks = [];
+  const originalSet = AudioParam.prototype.setValueAtTime;
+  AudioParam.prototype.setValueAtTime = function(value, at) { this.__scheduledValue = value; return originalSet.call(this, value, at); };
+  const originalStart = OscillatorNode.prototype.start;
+  OscillatorNode.prototype.start = function(at) {
+    if (this.frequency.__scheduledValue >= 800) window.__clicks.push({at, frequency: this.frequency.__scheduledValue});
+    return originalStart.call(this, at);
+  };
   navigator.mediaDevices.getUserMedia = async () => {
     const context = new AudioContext(),
       dest = context.createMediaStreamDestination();
@@ -43,15 +51,16 @@ try {
   await page.getByRole("button", { name: "逐弦精调", exact: true }).click();
   await page.getByRole("button", { name: "直接去练习 →", exact: true }).click();
   await page.getByLabel("基础速度", { exact: true }).fill("120");
+  await page.getByLabel("我已用耳机隔离节拍声").check();
   await page.getByRole("button", { name: "▶ 开始练习", exact: true }).click();
   await page.waitForFunction(() =>
-    document.querySelector(".v-live")?.textContent.includes("预备拍"),
+    document.querySelector(".v-live")?.textContent.trim().startsWith("预备拍 ·"),
   );
   await page.evaluate(() =>
     window.__syntheticInput.play(
       [62, 64, 66, 69, 71, 69, 66, 64, 62, 66, 64, 69, 66, 64, 62],
       0.5,
-      3.94,
+      2.06,
     ),
   );
   await page
@@ -61,6 +70,10 @@ try {
       JSON.parse(localStorage.getItem("zhiyin-v2-records")),
     ),
     r = records[0];
+  const clicks = await page.evaluate(() => window.__clicks);
+  assert.equal(clicks.length, 20, "4 count-in beats plus 16 score beats");
+  assert.ok(Math.abs(clicks[4].at - clicks[0].at - 2) < 0.01);
+  assert.ok(clicks[0].frequency > clicks[1].frequency);
   assert.equal(r.demo, false);
   assert.equal(r.completed, true);
   assert.ok(r.pitchScore >= 90, JSON.stringify(r));

@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Metronome, type ClickTone } from "../lib/metronome";
 import { FineTuningInput } from "../lib/fine-tuning";
 import Sheet from "./NumberedSheet";
 import StringGuide from "./StringGuide";
@@ -31,6 +32,7 @@ type Run = {
   score: Score;
   stage: Stage;
   lastFrame: number;
+  speaker: boolean;
 };
 const RECORDS = "zhiyin-v2-records",
   CUSTOM = "zhiyin-v2-scores",
@@ -83,6 +85,10 @@ export default function GuzhengApp() {
     [from, setFrom] = useState(1),
     [to, setTo] = useState(4),
     [message, setMessage] = useState("");
+  const metronome = useRef(new Metronome());
+  const [clickTone, setClickTone] = useState<ClickTone>("wood");
+  const [clickVolume, setClickVolume] = useState(0.5);
+  const [headphones, setHeadphones] = useState(false);
   const fineInput = useRef(new FineTuningInput());
   const [tuningHint, setTuningHint] = useState(false);
   const [tuningHelp, setTuningHelp] = useState(false);
@@ -308,10 +314,17 @@ export default function GuzhengApp() {
     const r = run.current;
     if (!r || busy.current) return;
     busy.current = true;
+    metronome.current.stop();
     r.stage = "paused";
     setStage("ready");
     if (completed) r.engine.tick(r.engine.timeline.duration + 1);
     const result = r.engine.report(r.score, completed, r.demo);
+    if (r.speaker) {
+      result.reasons.push("本次使用外放节拍器，未隔离节拍声，不生成评分。");
+      result.comment =
+        "已记录本次外放跟拍练习。使用耳机隔离节拍声后，可再检查音符和节奏。";
+      result.suggestions = [];
+    }
     setReport(result);
     setBarFocus(null);
     setRecordingOffset(r.start - (audio.current?.recordingStart ?? r.start));
@@ -337,6 +350,7 @@ export default function GuzhengApp() {
   function pause(reason = "已暂停；恢复会建立新的练习片段。") {
     const r = run.current;
     if (!r || r.stage === "paused") return;
+    metronome.current.stop();
     r.stage = "paused";
     if (audio.current?.recorder?.state === "recording")
       audio.current.recorder.pause();
@@ -370,14 +384,25 @@ export default function GuzhengApp() {
         if (!audio.current!.startRecording())
           setMessage("此浏览器暂不能录音回听，实时练习仍可进行。");
       }
+      await metronome.current.open(demo ? undefined : audio.current!.context!);
       const t = makeTimeline(score, bpm, from, to),
-        now = demo ? performance.now() / 1000 : audio.current!.time;
+        now = (demo ? performance.now() / 1000 : audio.current!.time) + 0.12;
       const engine = new PracticeEngine(t, {
         pitchCents: 35,
         timingFraction: 0.15,
         minimumTimingMs: 65,
         latencyMs: latency,
       });
+      if (!demo && !headphones) engine.untrusted(-t.countIn, t.duration + 1);
+      metronome.current.start(
+        t,
+        score.meter[0],
+        demo
+          ? metronome.current.context!.currentTime + 0.12 + t.countIn
+          : now + t.countIn,
+        clickTone,
+        clickVolume,
+      );
       setLiveEngine(engine);
       run.current = {
         engine,
@@ -387,6 +412,7 @@ export default function GuzhengApp() {
         score,
         stage: "countdown",
         lastFrame: now,
+        speaker: !demo && !headphones,
       };
       setStage("countdown");
       setElapsed(-t.countIn);
@@ -492,6 +518,7 @@ export default function GuzhengApp() {
           : [],
       );
     });
+    const clickPlayer = metronome.current;
     const id = setInterval(() => {
       if (sweepSession.current.active) {
         if (performance.now() - sweepWall.current > 500) {
@@ -532,7 +559,7 @@ export default function GuzhengApp() {
         }
       }
       r.engine.tick(t);
-      if (r.engine.lost) {
+      if (r.engine.lost && !r.speaker) {
         pauseRef.current(
           r.engine.lossReason === "repeat"
             ? "检测到回头重弹，已暂停。请选择恢复小节。"
@@ -552,6 +579,7 @@ export default function GuzhengApp() {
     };
     document.addEventListener("visibilitychange", hidden);
     return () => {
+      clickPlayer.stop();
       clearInterval(id);
       document.removeEventListener("visibilitychange", hidden);
       void audio.current?.stopRecording();
@@ -650,6 +678,7 @@ export default function GuzhengApp() {
         }
       }
       if (!r || r.demo || !["playing", "countdown"].includes(r.stage)) return;
+      if (r.speaker) return;
       const time = f.time - r.start;
       if (time < -0.44) return;
       if (
@@ -1345,6 +1374,51 @@ export default function GuzhengApp() {
                     可选：去校音 →
                   </button>
                 )}
+                <fieldset
+                  className="metronome-settings"
+                  disabled={active || opening}
+                >
+                  <legend>声音节拍器 · 全程跟拍</legend>
+                  <label>
+                    节拍音色
+                    <select
+                      aria-label="节拍音色"
+                      value={clickTone}
+                      onChange={(e) =>
+                        setClickTone(e.target.value as ClickTone)
+                      }
+                    >
+                      <option value="wood">木鱼</option>
+                      <option value="soft">柔和滴声</option>
+                      <option value="digital">电子滴声</option>
+                    </select>
+                  </label>
+                  <label>
+                    节拍音量
+                    <input
+                      aria-label="节拍音量"
+                      type="range"
+                      min="0.1"
+                      max="1"
+                      step="0.1"
+                      value={clickVolume}
+                      onChange={(e) => setClickVolume(Number(e.target.value))}
+                    />
+                  </label>
+                  <label className="v-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={headphones}
+                      onChange={(e) => setHeadphones(e.target.checked)}
+                    />
+                    我已用耳机隔离节拍声
+                  </label>
+                  <small>
+                    {headphones
+                      ? "请确保麦克风收不到耳机漏音；建议有线耳机，设备时差仍需实测。"
+                      : "外放可全程跟拍；节拍声会干扰采音，本次不判错、不生成评分。需要音符反馈时请使用耳机。"}
+                  </small>
+                </fieldset>
                 <details>
                   <summary>采音时差校正</summary>
                   <p>
@@ -1404,7 +1478,7 @@ export default function GuzhengApp() {
                       elapsed < 0
                         ? Math.floor(
                             (elapsed + t.countIn) /
-                              (t.countIn / (score.meter[0] * 2)),
+                              (t.countIn / score.meter[0]),
                           )
                         : t.beats.filter((b) => b <= elapsed).length - 1;
                   return (
@@ -1421,7 +1495,7 @@ export default function GuzhengApp() {
               </div>
               <div className="v-live" aria-live="polite">
                 {stage === "countdown"
-                  ? `预备拍 · ${Math.max(1, Math.ceil(-elapsed / (timeline.countIn / (score.meter[0] * 2))))}`
+                  ? `预备拍 · ${Math.max(1, Math.ceil(-elapsed / (timeline.countIn / score.meter[0])))}`
                   : stage === "playing"
                     ? `正在听 · ${demo ? "模拟" : frame?.midi ? noteName(frame.midi) : "等待琴声"}`
                     : stage === "paused"
@@ -1429,7 +1503,7 @@ export default function GuzhengApp() {
                       : completedTuning
                         ? "校音已完成"
                         : "准备开始"}
-                <small>视觉节拍 · 演奏中不播报纠错</small>
+                <small>声音节拍 · 一小节预备拍 · 首拍重音</small>
               </div>
               <div className="v-actions">
                 {stage === "ready" && (
@@ -1882,7 +1956,7 @@ export default function GuzhengApp() {
       <footer className="v-footer">
         <span>知音 · 数字生命 King</span>
         <span>先调准，再练稳。</span>
-        <span>试用版 V0.3.7</span>
+        <span>试用版 V0.3.8</span>
       </footer>
     </div>
   );
