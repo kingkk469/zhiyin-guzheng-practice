@@ -80,6 +80,14 @@ try {
     await page.locator(".v-string-grid button").nth(1).getAttribute("class"),
     "selected ",
   );
+  await page.getByText("与 Tuner Lite 对照读数", { exact: true }).click();
+  await page.getByRole("button", { name: "记录当前稳定读数", exact: true }).click();
+  await page.getByLabel("另一款调音器的实际频率（Hz）").fill(String(440 * 2 ** ((83 - 69) / 12)));
+  assert.match(await page.locator(".tuner-comparison [role=status]").innerText(), /相差 \+3[456]\./);
+  await page.getByLabel("另一款调音器的实际频率（Hz）").fill("0");
+  assert.equal(await page.locator(".tuner-comparison [role=status]").count(), 0);
+  await page.getByRole("button", { name: "清除对照", exact: true }).click();
+  assert.equal(await page.getByLabel("另一款调音器的实际频率（Hz）").count(), 0);
   await page.screenshot({
     path: "outputs/fine-tuning-fixed.png",
     fullPage: true,

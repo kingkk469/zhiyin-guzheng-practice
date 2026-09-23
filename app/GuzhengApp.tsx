@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FineTuningInput } from "../lib/fine-tuning";
 import Sheet from "./NumberedSheet";
 import StringGuide from "./StringGuide";
+import TunerComparison from "./TunerComparison";
 import TuningSweepPanel from "./TuningSweepPanel";
 import { TuningSweep, type SweepView } from "../lib/tuning-sweep";
 import { LocalAudio, type Frame } from "../lib/audio";
@@ -949,7 +950,7 @@ export default function GuzhengApp() {
                 <span>标准音高 A4 = 440 Hz · D调21弦</span>
                 <small>
                   {tuningReading?.midi != null
-                    ? `清晰度 ${Math.round(tuningReading.confidence * 100)}% · 请对照弦号，不要看到偏差就直接拧琴钉。`
+                    ? `周期匹配指标 ${Math.round(tuningReading.confidence * 100)}%（不是准确率） · 请对照弦号，不要看到偏差就直接拧琴钉。`
                     : "先单拨一根，不要扫弦；琴码左侧不要按弦。"}
                 </small>
               </div>
@@ -998,7 +999,8 @@ export default function GuzhengApp() {
               </details>
               <p className="v-note-text">
                 每根弦需在 ±15
-                音分内稳定约0.5秒。请勿同时拨响多根弦；当前参数仍待老师试弹确认。
+                音分内稳定约0.5秒。这是巡检通过范围，不是测量精度；精调可继续向
+                0 音分靠近。请勿同时拨响多根弦。
               </p>
               <div className="v-actions">
                 <button
@@ -1038,13 +1040,26 @@ export default function GuzhengApp() {
               <div className="v-tuner">
                 <span>
                   第 {tuning.index + 1} 弦 · 目标{" "}
-                  {noteName(STRINGS[tuning.index])}
+                  {noteName(STRINGS[tuning.index])} ·{" "}
+                  {(440 * 2 ** ((STRINGS[tuning.index] - 69) / 12)).toFixed(2)}{" "}
+                  Hz
                 </span>
                 <strong>
                   {fineFrame?.midi !== null && fineFrame?.midi !== undefined
                     ? noteName(fineFrame.midi)
                     : "—"}
                 </strong>
+                <div className="fine-frequency">
+                  {fineFrame?.midi != null
+                    ? `${(440 * 2 ** ((fineFrame.midi - 69) / 12)).toFixed(2)} Hz · 读数已稳定`
+                    : !mic
+                      ? "请先开启麦克风"
+                      : frame && frame.peak > 0.98
+                        ? "声音过载，请把手机移远后重新拨弦"
+                        : frame && frame.rms < 0.0005
+                          ? "等待拨弦"
+                          : "正在确认，请单拨当前弦"}
+                </div>
                 <div className="v-cents">
                   {cents !== null && Math.abs(cents) <= 100 && (
                     <i style={{ left: `${50 + clamp(cents, -50, 50)}%` }} />
@@ -1052,9 +1067,9 @@ export default function GuzhengApp() {
                   <span className="v-center-line" />
                 </div>
                 <div className="v-cents-labels">
-                  <span>偏低</span>
-                  <span>音准</span>
-                  <span>偏高</span>
+                  <span>−50 偏低</span>
+                  <span>0 音分</span>
+                  <span>+50 偏高</span>
                 </div>
                 <p>
                   {cents === null
@@ -1067,6 +1082,12 @@ export default function GuzhengApp() {
                           : "保持，正在确认…"
                         : `${cents > 0 ? "高" : "低"}了 ${Math.abs(Math.round(cents))} 音分`}
                 </p>
+                {cents !== null && Math.abs(cents) <= 100 && (
+                  <div className="fine-offset">
+                    相对目标：{cents > 0 ? "+" : ""}
+                    {cents.toFixed(1)} 音分
+                  </div>
+                )}
                 <p className="v-note-text">
                   精调锁定当前弦，不自动跳弦。换弦后重新拨响；弦号不符时不显示偏高／偏低指针。
                 </p>
@@ -1091,6 +1112,10 @@ export default function GuzhengApp() {
                   ))}
                 </div>
                 <span>{tuning.passed.length} / 21 根弦已通过</span>
+                <TunerComparison
+                  frame={mic ? fineFrame : null}
+                  index={tuning.index}
+                />
               </div>
             )}
             {tuneMode === "sweep" && (
@@ -1791,7 +1816,7 @@ export default function GuzhengApp() {
       <footer className="v-footer">
         <span>知音 · 数字生命 King</span>
         <span>先调准，再练稳。</span>
-        <span>试用版 V0.3.2</span>
+        <span>试用版 V0.3.3</span>
       </footer>
     </div>
   );
