@@ -1747,3 +1747,14 @@
   line-height: 1.7;
   margin: 10px 0;
 }
+/* Clock-driven heads must never interpolate diagonally or lag behind the audio clock. */
+.score-playhead,
+.sweep-playhead {
+  transition: none;
+  will-change: transform, opacity;
+}
+.score-paper,
+.v-sweep-grid.is-running {
+  overflow-anchor: none;
+  scroll-behavior: auto;
+}

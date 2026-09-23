@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import ScorePlayhead from "./ScorePlayhead";
 import { notation } from "../lib/scores";
 import type {
   Score,
@@ -14,6 +15,7 @@ export default function NumberedSheet({
   engine,
   elapsed = -10,
   onBar,
+  clock,
 }: {
   score: Score;
   timeline: Timeline;
@@ -21,6 +23,7 @@ export default function NumberedSheet({
   engine?: PracticeEngine;
   elapsed?: number;
   onBar?: (m: number) => void;
+  clock?: () => number | null;
 }) {
   const host = useRef<HTMLDivElement>(null),
     [columns, setColumns] = useState(4);
@@ -33,7 +36,6 @@ export default function NumberedSheet({
   const active = timeline.bars.findIndex(
     (b) => elapsed >= b.start && elapsed < b.end,
   );
-  const row = active < 0 ? -1 : Math.floor(active / columns);
   useEffect(() => {
     const el = host.current;
     if (!el) return;
@@ -43,36 +45,11 @@ export default function NumberedSheet({
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-  useEffect(() => {
-    const el = host.current;
-    if (!el || row < 0) return;
-    const target = el.querySelector(`[data-score-row="${row}"]`);
-    if (!target) return;
-    const rect = target.getBoundingClientRect(),
-      parent = el.getBoundingClientRect();
-    if (rect.bottom > parent.bottom || rect.top < parent.top)
-      el.scrollTo({
-        top: el.scrollTop + rect.top - parent.top,
-        behavior: "instant",
-      });
-  }, [row]);
   const width = columns * 280 + 40,
     rows = Math.ceil(timeline.bars.length / columns),
     height = rows * 180 + 20;
   const current = active >= 0 ? timeline.bars[active] : null;
-  const events = current
-    ? timeline.events.filter((n) => n.measure === current.measure)
-    : [];
-  const event = events.find((n) => elapsed >= n.time && elapsed < n.end);
-  const progress = event
-    ? event.beat +
-      event.duration *
-        Math.max(
-          0,
-          Math.min(1, (elapsed - event.time) / (event.end - event.time)),
-        )
-    : 0;
-  const beatWidth = 250 / score.meter[0];
+  const beatWidth = 280 / score.meter[0];
   return (
     <section
       className="v-sheet numbered-sheet"
@@ -268,24 +245,14 @@ export default function NumberedSheet({
               </g>
             );
           })}
-          {active >= 0 && (
-            <g
-              className="score-playhead"
-              transform={`translate(${20 + (active % columns) * 280 + 12 + progress * beatWidth},${Math.floor(active / columns) * 180})`}
-            >
-              <rect
-                x="-6"
-                y="31"
-                width="12"
-                height="82"
-                rx="4"
-                fill="#b44336"
-                opacity=".18"
-              />
-              <line y1="30" y2="115" stroke="#b44336" strokeWidth="2" />
-              <path d="M-5 25L5 25L0 31Z" fill="#b44336" />
-            </g>
-          )}
+          <ScorePlayhead
+            score={score}
+            timeline={timeline}
+            columns={columns}
+            elapsed={elapsed}
+            clock={clock}
+            viewport={host}
+          />
         </svg>
       </div>
       <div className="v-legend">

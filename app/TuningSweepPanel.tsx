@@ -19,6 +19,7 @@ export default function TuningSweepPanel({
   onStop,
   onFine,
   onSpeed,
+  clock,
 }: {
   view: SweepView;
   ready: boolean;
@@ -26,23 +27,62 @@ export default function TuningSweepPanel({
   onStop: () => void;
   onFine: (index: number) => void;
   onSpeed: (speed: number) => void;
+  clock?: () => number | null;
 }) {
   const active = view.phase === "countdown" || view.phase === "running";
   const grid = useRef<HTMLDivElement>(null);
-  const row = Math.max(0, Math.floor(view.cursor / 7));
   useEffect(() => {
-    const el = grid.current;
-    if (!el || !active) return;
-    const target = el.querySelector(`[data-row="${row}"]`);
-    if (!target) return;
-    const rect = target.getBoundingClientRect(),
-      parent = el.getBoundingClientRect();
-    if (rect.bottom > parent.bottom || rect.top < parent.top)
-      el.scrollTo({
-        top: el.scrollTop + rect.top - parent.top,
-        behavior: "instant",
-      });
-  }, [row, active]);
+    let request = 0,
+      lastRow = -1;
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const paint = () => {
+      const el = grid.current,
+        time = clock?.();
+      if (el) {
+        const running = active && time != null && time >= 0;
+        const row = running
+          ? Math.min(2, Math.floor(time / view.interval / 7))
+          : -1;
+        el.querySelectorAll<HTMLElement>(".sweep-playhead").forEach(
+          (head, i) => {
+            head.style.display = i === row ? "" : "none";
+            if (i === row && time != null) {
+              const local = Math.min(7, time / view.interval - row * 7);
+              head.style.left = `${((Math.min(local, 6) + 0.5 + Math.max(0, local - 6) * 0.5) / 7) * 100}%`;
+              const enter =
+                row > 0 ? Math.min(1, (local * view.interval) / 0.075) : 1;
+              const leave =
+                row < 2
+                  ? Math.min(1, ((7 - local) * view.interval) / 0.075)
+                  : 1;
+              head.style.opacity = String(reduced ? 1 : Math.min(enter, leave));
+            }
+          },
+        );
+        const next = running
+          ? Math.min(2, Math.floor((time + 0.35) / view.interval / 7))
+          : -1;
+        if (next >= 0 && next !== lastRow) {
+          lastRow = next;
+          const target = el.querySelector(`[data-row="${next}"]`);
+          if (target) {
+            const a = target.getBoundingClientRect(),
+              b = el.getBoundingClientRect();
+            if (a.bottom > b.bottom || a.top < b.top)
+              el.scrollTo({
+                top:
+                  el.scrollTop +
+                  (a.top < b.top ? a.top - b.top : a.bottom - b.bottom),
+                behavior: reduced ? "instant" : "smooth",
+              });
+          }
+        }
+      }
+      request = requestAnimationFrame(paint);
+    };
+    request = requestAnimationFrame(paint);
+    return () => cancelAnimationFrame(request);
+  }, [active, clock, view.interval]);
   const correct = view.results.filter((r) => r.status === "correct").length,
     adjust = view.results.filter(
       (r) => r.status === "high" || r.status === "low",
@@ -105,15 +145,7 @@ export default function TuningSweepPanel({
       <div className={`v-sweep-grid ${active ? "is-running" : ""}`} ref={grid}>
         {[0, 1, 2].map((row) => (
           <div className="v-sweep-row" key={row} data-row={row}>
-            {view.phase === "running" &&
-              Math.floor(view.cursor / 7) === row && (
-                <i
-                  className="sweep-playhead"
-                  style={{
-                    left: `${Math.min(97, ((view.elapsed / view.interval - row * 7 + 0.5) / 7) * 100)}%`,
-                  }}
-                />
-              )}
+            <i className="sweep-playhead" style={{ display: "none" }} />
             {STRINGS.slice(row * 7, row * 7 + 7).map((m, j) => {
               const i = row * 7 + j,
                 x = notation(m),

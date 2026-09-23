@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Sheet from "./NumberedSheet";
 import StringGuide from "./StringGuide";
 import TuningSweepPanel from "./TuningSweepPanel";
@@ -444,6 +444,17 @@ export default function GuzhengApp() {
       ]);
     }
   }
+  const readSweepClock = useCallback(() => {
+    const s = sweepSession.current;
+    return s.active ? (audio.current?.time ?? 0) - s.startTime : null;
+  }, []);
+  const readPlayClock = useCallback(() => {
+    const r = run.current;
+    if (!r || r.stage === "paused") return null;
+    return (
+      (r.demo ? performance.now() / 1000 : (audio.current?.time ?? 0)) - r.start
+    );
+  }, []);
   useEffect(() => {
     queueMicrotask(() => {
       const rs = read<unknown>(RECORDS, []);
@@ -894,8 +905,8 @@ export default function GuzhengApp() {
               <details className="tuning-diagnostics">
                 <summary>识别异常？查看采音信息</summary>
                 <p>
-                  采样率：{inputRate ?? "—"} Hz ·
-                  算法：Pitchy / MPM · A4 = 440 Hz
+                  采样率：{inputRate ?? "—"} Hz · 算法：Pitchy / MPM · A4 = 440
+                  Hz
                 </p>
                 <p>
                   若你的调音器读数正常而这里不同，先保留琴的调弦。以下文件只含检测数值及设备设置，不含录音，不会自动上传。
@@ -1025,6 +1036,7 @@ export default function GuzhengApp() {
               <TuningSweepPanel
                 view={sweepView}
                 ready={mic && environment === "环境已检查，请逐弦拨响"}
+                clock={readSweepClock}
                 onStart={startSweep}
                 onStop={() => stopSweep()}
                 onFine={fineString}
@@ -1069,6 +1081,7 @@ export default function GuzhengApp() {
                 timeline={liveEngine?.timeline ?? timeline}
                 engine={liveEngine}
                 elapsed={elapsed}
+                clock={readPlayClock}
               />
               <aside className="v-config">
                 <span className="eyebrow">本次练习</span>
@@ -1717,7 +1730,7 @@ export default function GuzhengApp() {
       <footer className="v-footer">
         <span>知音 · 数字生命 King</span>
         <span>先调准，再练稳。</span>
-        <span>试用版 V0.3</span>
+        <span>试用版 V0.3.1</span>
       </footer>
     </div>
   );
