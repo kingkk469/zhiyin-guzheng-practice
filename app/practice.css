@@ -1785,3 +1785,70 @@
 .tuner-comparison button {
   margin: 6px 6px 6px 0;
 }
+
+/* Stable slots prevent pitch/no-pitch transitions from reflowing the tuner. */
+.v-tuner > strong {
+  height: 100px;
+  line-height: 100px;
+  margin: 12px 0;
+  white-space: nowrap;
+}
+.v-tuner .fine-frequency {
+  height: 48px;
+  line-height: 24px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.v-tuner .fine-status {
+  height: 56px;
+  line-height: 28px;
+  margin: 12px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.v-tuner .fine-offset {
+  height: 28px;
+  line-height: 28px;
+  margin: 8px 0 16px;
+}
+.cents-dial {
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+}
+.cents-dial svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 400 / 252;
+  overflow: visible;
+}
+.dial-needle {
+  transition: transform 80ms linear;
+}
+.dial-range {
+  height: 40px;
+  line-height: 20px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.tuning-readout {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+.tuning-readout b {
+  min-height: 48px;
+  line-height: 24px;
+}
+.tuning-readout small {
+  min-height: 60px;
+  line-height: 20px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dial-needle {
+    transition: none;
+  }
+}

@@ -46,6 +46,9 @@ try {
   await page.getByRole("button", { name: "逐弦精调", exact: true }).click();
   await page.getByRole("button", { name: "开启麦克风", exact: true }).click();
   await page.getByText("环境已检查，请逐弦拨响", { exact: true }).waitFor();
+  const positions = () => page.evaluate(() => [".v-tuner > strong", ".cents-dial", ".fine-status", ".fine-offset", ".v-string-grid"].map(selector => { const r = document.querySelector(selector).getBoundingClientRect(); return { top: r.top + scrollY, height: r.height }; }));
+  const silentPositions = await positions();
+  assert.equal(await page.locator(".dial-tick").count(), 101);
   await page.evaluate(() => window.__syntheticInput.play([86], 3));
   await page.waitForFunction(() =>
     document
@@ -62,10 +65,13 @@ try {
   assert.ok(
     (await page.locator(".v-tuner").innerText()).includes("本弦已确认准确"),
   );
+  const soundingPositions = await positions();
+  soundingPositions.forEach((r, i) => { assert.ok(Math.abs(r.top - silentPositions[i].top) < 1, "sound must not move layout"); assert.ok(Math.abs(r.height - silentPositions[i].height) < 1); });
+  await page.locator(".v-tuner").screenshot({ path: "outputs/fine-dial-preview.png", style: ".topbar { visibility: hidden; }" });
   await page.getByRole("button", { name: "下一根弦 →", exact: true }).click();
   await page.waitForTimeout(200);
   assert.equal(
-    await page.locator(".v-tuner .v-cents > i").count(),
+    await page.locator('.v-tuner .dial-needle[data-visible="true"]').count(),
     0,
     "previous string tail must not peg needle high",
   );

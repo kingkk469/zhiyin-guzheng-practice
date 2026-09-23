@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FineTuningInput } from "../lib/fine-tuning";
 import Sheet from "./NumberedSheet";
 import StringGuide from "./StringGuide";
+import CentsDial from "./CentsDial";
 import TunerComparison from "./TunerComparison";
 import TuningSweepPanel from "./TuningSweepPanel";
 import { TuningSweep, type SweepView } from "../lib/tuning-sweep";
@@ -1060,18 +1061,8 @@ export default function GuzhengApp() {
                           ? "等待拨弦"
                           : "正在确认，请单拨当前弦"}
                 </div>
-                <div className="v-cents">
-                  {cents !== null && Math.abs(cents) <= 100 && (
-                    <i style={{ left: `${50 + clamp(cents, -50, 50)}%` }} />
-                  )}
-                  <span className="v-center-line" />
-                </div>
-                <div className="v-cents-labels">
-                  <span>−50 偏低</span>
-                  <span>0 音分</span>
-                  <span>+50 偏高</span>
-                </div>
-                <p>
+                <CentsDial cents={cents} />
+                <p className="fine-status">
                   {cents === null
                     ? "请重新拨响当前弦，等待读数稳定"
                     : Math.abs(cents) > 100
@@ -1082,12 +1073,12 @@ export default function GuzhengApp() {
                           : "保持，正在确认…"
                         : `${cents > 0 ? "高" : "低"}了 ${Math.abs(Math.round(cents))} 音分`}
                 </p>
-                {cents !== null && Math.abs(cents) <= 100 && (
-                  <div className="fine-offset">
-                    相对目标：{cents > 0 ? "+" : ""}
-                    {cents.toFixed(1)} 音分
-                  </div>
-                )}
+                <div className="fine-offset">
+                  相对目标：
+                  {cents !== null && Math.abs(cents) <= 100
+                    ? `${cents > 0 ? "+" : ""}${cents.toFixed(1)} 音分`
+                    : "— 音分"}
+                </div>
                 <p className="v-note-text">
                   精调锁定当前弦，不自动跳弦。换弦后重新拨响；弦号不符时不显示偏高／偏低指针。
                 </p>
@@ -1816,7 +1807,7 @@ export default function GuzhengApp() {
       <footer className="v-footer">
         <span>知音 · 数字生命 King</span>
         <span>先调准，再练稳。</span>
-        <span>试用版 V0.3.3</span>
+        <span>试用版 V0.3.4</span>
       </footer>
     </div>
   );

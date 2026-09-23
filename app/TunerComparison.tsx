@@ -78,7 +78,7 @@ export default function TunerComparison({
                   [
                     JSON.stringify(
                       {
-                        version: "0.3.3",
+                        version: "0.3.4",
                         referenceA4: 440,
                         temperament: "equal",
                         sample,
