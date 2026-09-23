@@ -7,34 +7,37 @@ const browser = await chromium.launch({ channel: "msedge", headless: true });
 const page = await browser.newPage({ viewport: { width: 1365, height: 1000 } }),
   errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
-await page.addInitScript((amplitude) => {
-  navigator.mediaDevices.getUserMedia = async () => {
-    const context = new AudioContext(),
-      dest = context.createMediaStreamDestination();
-    await context.resume();
-    window.__syntheticInput = {
-      context,
-      play(notes, spacing, delay = 0.1) {
-        const start = context.currentTime + delay;
-        notes.forEach((m, i) => {
-          if (m === null) return;
-          const osc = context.createOscillator(),
-            amp = context.createGain(),
-            at = start + i * spacing;
-          osc.frequency.value = 440 * 2 ** ((m - 69) / 12);
-          amp.gain.setValueAtTime(0.00001, at);
-          amp.gain.exponentialRampToValueAtTime(amplitude, at + 0.008);
-          amp.gain.setValueAtTime(amplitude, at + spacing * 0.7);
-          amp.gain.exponentialRampToValueAtTime(0.00001, at + spacing * 0.9);
-          osc.connect(amp).connect(dest);
-          osc.start(at);
-          osc.stop(at + spacing * 0.95);
-        });
-      },
+await page.addInitScript(
+  (amplitude) => {
+    navigator.mediaDevices.getUserMedia = async () => {
+      const context = new AudioContext(),
+        dest = context.createMediaStreamDestination();
+      await context.resume();
+      window.__syntheticInput = {
+        context,
+        play(notes, spacing, delay = 0.1) {
+          const start = context.currentTime + delay;
+          notes.forEach((m, i) => {
+            if (m === null) return;
+            const osc = context.createOscillator(),
+              amp = context.createGain(),
+              at = start + i * spacing;
+            osc.frequency.value = 440 * 2 ** ((m - 69) / 12);
+            amp.gain.setValueAtTime(0.00001, at);
+            amp.gain.exponentialRampToValueAtTime(amplitude, at + 0.008);
+            amp.gain.setValueAtTime(amplitude, at + spacing * 0.7);
+            amp.gain.exponentialRampToValueAtTime(0.00001, at + spacing * 0.9);
+            osc.connect(amp).connect(dest);
+            osc.start(at);
+            osc.stop(at + spacing * 0.95);
+          });
+        },
+      };
+      return dest.stream;
     };
-    return dest.stream;
-  };
-}, Number(process.env.TEST_AUDIO_AMPLITUDE ?? 0.25));
+  },
+  Number(process.env.TEST_AUDIO_AMPLITUDE ?? 0.25),
+);
 try {
   await page.goto(process.env.TEST_BASE_URL ?? "http://127.0.0.1:3219/");
   await page.getByRole("button", { name: "开始校音 →", exact: true }).click();
@@ -85,15 +88,22 @@ try {
   await page
     .getByRole("button", { name: "第4弦 · ↑ 偏高", exact: true })
     .click();
-  await page.evaluate(
-    (notes) => window.__syntheticInput.play(notes, 1.15),
-    [STRINGS[3], STRINGS[5], STRINGS[9]],
-  );
-  await page.waitForFunction(
-    () => document.querySelectorAll(".v-string-grid .passed").length === 21,
-    {},
-    { timeout: 8000 },
-  );
+  for (const i of [3, 5, 9]) {
+    await page.locator(".v-string-grid button").nth(i).click();
+    await page.evaluate(
+      (m) => window.__syntheticInput.play([m], 1.15),
+      STRINGS[i],
+    );
+    await page.waitForFunction(
+      (i) =>
+        document
+          .querySelectorAll(".v-string-grid button")
+          [i].classList.contains("passed"),
+      i,
+      { timeout: 4000 },
+    );
+    await page.waitForTimeout(500);
+  }
   assert.equal(
     await page
       .getByRole("button", { name: "校音完成，去练习 →", exact: true })

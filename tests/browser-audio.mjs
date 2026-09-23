@@ -40,10 +40,31 @@ try {
   await page.getByRole("button", { name: "逐弦精调", exact: true }).click();
   await page.getByRole("button", { name: "开启麦克风", exact: true }).click();
   await page.getByText("环境已检查，请逐弦拨响", { exact: true }).waitFor();
-  await page.evaluate(
-    (notes) => window.__syntheticInput.play(notes, 1.15),
-    STRINGS,
-  );
+  for (let i = 0; i < STRINGS.length; i++) {
+    if (i > 0)
+      await page
+        .getByRole("button", { name: "下一根弦 →", exact: true })
+        .click();
+    await page.evaluate(
+      (m) => window.__syntheticInput.play([m], 1.15),
+      STRINGS[i],
+    );
+    await page.waitForFunction(
+      (i) =>
+        document
+          .querySelectorAll(".v-string-grid button")
+          [i].classList.contains("passed"),
+      i,
+      { timeout: 4000 },
+    );
+    assert.equal(
+      await page
+        .locator(".v-string-grid button.selected")
+        .evaluate((el) => Array.from(el.parentElement.children).indexOf(el)),
+      i,
+    );
+    await page.waitForTimeout(500);
+  }
   await page
     .getByRole("button", { name: "校音完成，去练习 →", exact: true })
     .waitFor();

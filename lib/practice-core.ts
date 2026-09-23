@@ -346,7 +346,7 @@ export class TuningGate {
     this.since = null;
     this.lastTime = null;
   }
-  feed(midi: number | null, confidence: number, time: number) {
+  feed(midi: number | null, confidence: number, time: number, advance = true) {
     if (this.lastTime !== null && time - this.lastTime > 0.12)
       this.since = null;
     this.lastTime = time;
@@ -363,7 +363,7 @@ export class TuningGate {
     this.passed.add(this.index);
     this.since = null;
     const next = STRINGS.findIndex((_, i) => !this.passed.has(i));
-    if (next >= 0) this.select(next);
+    if (advance && next >= 0) this.select(next);
     return true;
   }
   get ready() {

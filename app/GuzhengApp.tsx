@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FineTuningInput } from "../lib/fine-tuning";
 import Sheet from "./NumberedSheet";
 import StringGuide from "./StringGuide";
 import TuningSweepPanel from "./TuningSweepPanel";
@@ -80,6 +81,9 @@ export default function GuzhengApp() {
     [from, setFrom] = useState(1),
     [to, setTo] = useState(4),
     [message, setMessage] = useState("");
+  const fineInput = useRef(new FineTuningInput());
+  const [inWechat, setInWechat] = useState(false);
+  const [fineFrame, setFineFrame] = useState<Frame | null>(null);
   const [mic, setMic] = useState(false),
     [inputRate, setInputRate] = useState<number | null>(null),
     [opening, setOpening] = useState(false),
@@ -158,6 +162,8 @@ export default function GuzhengApp() {
     sweepSession.current.results[i] = { status: "pending", cents: null };
     setSweepView(sweepSession.current.snapshot());
     setTuneMode("fine");
+    fineInput.current.select(audio.current?.time ?? 0);
+    setFineFrame(null);
     gate.current.select(i);
     setTuning({ index: i, passed: [...gate.current.passed] });
   }
@@ -235,6 +241,9 @@ export default function GuzhengApp() {
       audio.current ??= new LocalAudio();
       await audio.current.open();
       setMic(true);
+      fineInput.current.select(audio.current.time);
+      setFineFrame(null);
+      gate.current.select(gate.current.index);
       setInputRate(audio.current.context?.sampleRate ?? null);
       noise.current = [];
       checkingUntil.current = audio.current.time + 1.2;
@@ -457,6 +466,7 @@ export default function GuzhengApp() {
   }, []);
   useEffect(() => {
     queueMicrotask(() => {
+      setInWechat(/MicroMessenger/i.test(navigator.userAgent));
       const rs = read<unknown>(RECORDS, []);
       setRecords(Array.isArray(rs) ? rs.filter(validRecord) : []);
       const cs = read<unknown>(CUSTOM, []);
@@ -587,7 +597,28 @@ export default function GuzhengApp() {
       ) {
         const checkedIndex = gate.current.index;
         if (
-          gate.current.feed(f.peak > 0.98 ? null : f.midi, f.confidence, f.time)
+          f.attack !== null &&
+          f.attack >= fineInput.current.selectedAt &&
+          gate.current.passed.has(checkedIndex)
+        ) {
+          gate.current.passed.delete(checkedIndex);
+          gate.current.select(checkedIndex);
+          sweepSession.current.results[checkedIndex] = {
+            status: "pending",
+            cents: null,
+          };
+          setSweepView(sweepSession.current.snapshot());
+          setTuning({ index: checkedIndex, passed: [...gate.current.passed] });
+        }
+        const accepted = fineInput.current.accept(f);
+        setFineFrame(fineInput.current.reading);
+        if (
+          gate.current.feed(
+            accepted?.midi ?? null,
+            accepted?.confidence ?? 0,
+            f.time,
+            false,
+          )
         ) {
           sweepSession.current.results[checkedIndex] = {
             status: "correct",
@@ -618,10 +649,11 @@ export default function GuzhengApp() {
         });
     };
   });
+  const tuningReading = tuneMode === "fine" ? fineFrame : frame;
   const completedTuning = tuning.passed.length === 21,
     cents =
-      frame?.midi !== null && frame?.midi !== undefined
-        ? (frame.midi - STRINGS[tuning.index]) * 100
+      fineFrame?.midi !== null && fineFrame?.midi !== undefined
+        ? (fineFrame.midi - STRINGS[tuning.index]) * 100
         : null;
   const reportTimeline = report
     ? makeTimeline(score, report.bpm, report.from, report.to)
@@ -672,6 +704,16 @@ export default function GuzhengApp() {
         </span>
       </header>
       <main className="v-main">
+        {inWechat && (
+          <div className="v-demo-banner" role="note">
+            <b>请用 Safari 或 Chrome 打开后再校音。</b>
+            <p>
+              当前是微信内置浏览器，采音可靠性尚未验证。iPhone
+              请点右上角“…”选择在浏览器打开；没有该选项时，复制链接粘贴到 Safari
+              地址栏。
+            </p>
+          </div>
+        )}
         {message && (
           <div role="status" className="v-message">
             {message}
@@ -850,7 +892,16 @@ export default function GuzhengApp() {
                     sweepView.phase === "countdown"
                   }
                   className={tuneMode === "fine" ? "active" : ""}
-                  onClick={() => setTuneMode("fine")}
+                  onClick={() =>
+                    fineString(
+                      Math.max(
+                        0,
+                        sweepSession.current.results.findIndex(
+                          (r) => r.status !== "correct",
+                        ),
+                      ),
+                    )
+                  }
                 >
                   逐弦精调
                 </button>
@@ -891,14 +942,14 @@ export default function GuzhengApp() {
               <div className="tuning-readout" aria-live="polite">
                 <b>
                   实际听到：
-                  {frame?.midi != null
-                    ? `${noteName(frame.midi)} · ${(440 * 2 ** ((frame.midi - 69) / 12)).toFixed(1)} Hz`
+                  {tuningReading?.midi != null
+                    ? `${noteName(tuningReading.midi)} · ${(440 * 2 ** ((tuningReading.midi - 69) / 12)).toFixed(1)} Hz`
                     : "等待清晰的单根琴声"}
                 </b>
                 <span>标准音高 A4 = 440 Hz · D调21弦</span>
                 <small>
-                  {frame?.midi != null
-                    ? `清晰度 ${Math.round(frame.confidence * 100)}% · 请对照弦号，不要看到偏差就直接拧琴钉。`
+                  {tuningReading?.midi != null
+                    ? `清晰度 ${Math.round(tuningReading.confidence * 100)}% · 请对照弦号，不要看到偏差就直接拧琴钉。`
                     : "先单拨一根，不要扫弦；琴码左侧不要按弦。"}
                 </small>
               </div>
@@ -956,6 +1007,8 @@ export default function GuzhengApp() {
                     sweepSession.current = new TuningSweep();
                     setSweepView(sweepSession.current.snapshot());
                     gate.current = new TuningGate();
+                    fineInput.current.select(audio.current?.time ?? 0);
+                    setFineFrame(null);
                     setTuning({ index: 0, passed: [] });
                   }}
                 >
@@ -988,12 +1041,14 @@ export default function GuzhengApp() {
                   {noteName(STRINGS[tuning.index])}
                 </span>
                 <strong>
-                  {frame?.midi !== null && frame?.midi !== undefined
-                    ? noteName(frame.midi)
+                  {fineFrame?.midi !== null && fineFrame?.midi !== undefined
+                    ? noteName(fineFrame.midi)
                     : "—"}
                 </strong>
                 <div className="v-cents">
-                  <i style={{ left: `${50 + clamp(cents ?? 0, -50, 50)}%` }} />
+                  {cents !== null && Math.abs(cents) <= 100 && (
+                    <i style={{ left: `${50 + clamp(cents, -50, 50)}%` }} />
+                  )}
                   <span className="v-center-line" />
                 </div>
                 <div className="v-cents-labels">
@@ -1003,26 +1058,32 @@ export default function GuzhengApp() {
                 </div>
                 <p>
                   {cents === null
-                    ? "等待琴声"
+                    ? "请重新拨响当前弦，等待读数稳定"
                     : Math.abs(cents) > 100
                       ? `请检查是否拨响第${tuning.index + 1}弦`
                       : Math.abs(cents) <= 15
-                        ? "保持，正在确认…"
+                        ? tuning.passed.includes(tuning.index)
+                          ? "✓ 本弦已确认准确，目标弦保持不变"
+                          : "保持，正在确认…"
                         : `${cents > 0 ? "高" : "低"}了 ${Math.abs(Math.round(cents))} 音分`}
                 </p>
+                <p className="v-note-text">
+                  精调锁定当前弦，不自动跳弦。换弦后重新拨响；弦号不符时不显示偏高／偏低指针。
+                </p>
+                <button
+                  className="secondary-button"
+                  disabled={tuning.index === 20}
+                  onClick={() => fineString(tuning.index + 1)}
+                >
+                  下一根弦 →
+                </button>
                 <div className="v-string-grid">
                   {STRINGS.map((m, i) => (
                     <button
                       aria-label={`第${i + 1}弦 ${noteName(m)}`}
                       key={i}
                       className={`${i === tuning.index ? "selected" : ""} ${tuning.passed.includes(i) ? "passed" : ""}`}
-                      onClick={() => {
-                        gate.current.select(i);
-                        setTuning({
-                          index: i,
-                          passed: [...gate.current.passed],
-                        });
-                      }}
+                      onClick={() => fineString(i)}
                     >
                       <b>{tuning.passed.includes(i) ? "✓" : i + 1}</b>
                       <small>{noteName(m)}</small>
@@ -1730,7 +1791,7 @@ export default function GuzhengApp() {
       <footer className="v-footer">
         <span>知音 · 数字生命 King</span>
         <span>先调准，再练稳。</span>
-        <span>试用版 V0.3.1</span>
+        <span>试用版 V0.3.2</span>
       </footer>
     </div>
   );
