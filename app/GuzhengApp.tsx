@@ -84,6 +84,7 @@ export default function GuzhengApp() {
     [to, setTo] = useState(4),
     [message, setMessage] = useState("");
   const fineInput = useRef(new FineTuningInput());
+  const [tuningHelp, setTuningHelp] = useState(false);
   const [inWechat, setInWechat] = useState(false);
   const [fineFrame, setFineFrame] = useState<Frame | null>(null);
   const [mic, setMic] = useState(false),
@@ -676,7 +677,9 @@ export default function GuzhengApp() {
       )
     : null;
   return (
-    <div className={`app-shell v-app ${active ? "v-performing" : ""}`}>
+    <div
+      className={`app-shell v-app ${active ? "v-performing" : ""} ${page === "tune" && tuneMode === "fine" ? "compact-fine" : ""} ${tuningHelp ? "show-tuning-help" : ""}`}
+    >
       <header className="topbar">
         <button
           className="brand"
@@ -876,7 +879,7 @@ export default function GuzhengApp() {
           <section
             className={`v-tuning ${tuneMode === "sweep" ? "is-sweep" : ""}`}
           >
-            <div>
+            <div className="tuning-preparation">
               <div className="v-tune-modes" role="group" aria-label="校音方式">
                 <button
                   disabled={
@@ -1039,6 +1042,16 @@ export default function GuzhengApp() {
             />
             {tuneMode === "fine" && (
               <div className="v-tuner">
+                <div className="mobile-tune-toolbar">
+                  <button onClick={() => setTuneMode("sweep")}>← 巡检</button>
+                  <b>逐弦精调</b>
+                  <button
+                    aria-expanded={tuningHelp}
+                    onClick={() => setTuningHelp(!tuningHelp)}
+                  >
+                    {tuningHelp ? "收起帮助" : "拨弦帮助"}
+                  </button>
+                </div>
                 <span>
                   第 {tuning.index + 1} 弦 · 目标{" "}
                   {noteName(STRINGS[tuning.index])} ·{" "}
@@ -1102,7 +1115,25 @@ export default function GuzhengApp() {
                     </button>
                   ))}
                 </div>
-                <span>{tuning.passed.length} / 21 根弦已通过</span>
+                <span>
+                  {tuning.passed.length} / 21 根弦已通过 · A4 = 440 Hz
+                </span>
+                <div className="mobile-tune-actions">
+                  <button
+                    className="secondary-button"
+                    disabled={opening}
+                    onClick={prepare}
+                  >
+                    {opening ? "连接中…" : mic ? "重检麦克风" : "开启麦克风"}
+                  </button>
+                  <button
+                    className="primary-button"
+                    disabled={!completedTuning}
+                    onClick={() => select(score)}
+                  >
+                    完成，去练习 →
+                  </button>
+                </div>
                 <TunerComparison
                   frame={mic ? fineFrame : null}
                   index={tuning.index}
@@ -1807,7 +1838,7 @@ export default function GuzhengApp() {
       <footer className="v-footer">
         <span>知音 · 数字生命 King</span>
         <span>先调准，再练稳。</span>
-        <span>试用版 V0.3.4</span>
+        <span>试用版 V0.3.5</span>
       </footer>
     </div>
   );
