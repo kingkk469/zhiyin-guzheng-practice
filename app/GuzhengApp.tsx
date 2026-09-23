@@ -84,6 +84,7 @@ export default function GuzhengApp() {
     [to, setTo] = useState(4),
     [message, setMessage] = useState("");
   const fineInput = useRef(new FineTuningInput());
+  const [tuningHint, setTuningHint] = useState(false);
   const [tuningHelp, setTuningHelp] = useState(false);
   const [inWechat, setInWechat] = useState(false);
   const [fineFrame, setFineFrame] = useState<Frame | null>(null);
@@ -215,6 +216,8 @@ export default function GuzhengApp() {
     },
   ) {
     stopPreview();
+    if (sweepSession.current.active) stopSweep();
+    setTuningHint(false);
     clearRecording();
     setReport(null);
     setScore(s);
@@ -252,6 +255,7 @@ export default function GuzhengApp() {
       checkingUntil.current = audio.current.time + 1.2;
       environmentOK.current = false;
       setEnvironment("请安静一秒，正在检查环境");
+      return true;
     } catch (e) {
       setMic(false);
       setEnvironment("未能连接");
@@ -262,6 +266,7 @@ export default function GuzhengApp() {
             ? e.message
             : "采音失败，请重试。",
       );
+      return false;
     } finally {
       setOpening(false);
     }
@@ -342,17 +347,25 @@ export default function GuzhengApp() {
   /* eslint-disable react-hooks/purity -- These async transport handlers run only on button clicks; timestamps are session data, never render-time values. */
   async function start() {
     if (busy.current) return;
-    if (!demo && (!gate.current.ready || !mic || !environmentOK.current)) {
-      navigate("tune");
-      setMessage("先完成21弦校音和环境检查，再开始评分练习。");
-      return;
-    }
     busy.current = true;
     stopPreview();
     clearRecording();
     setMessage("");
     try {
+      setTuningHint(false);
       if (!demo) {
+        if (!mic || !environmentOK.current) {
+          if (!(await prepare())) return;
+          const deadline = performance.now() + 6000;
+          while (checkingUntil.current && performance.now() < deadline)
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          if (!environmentOK.current) {
+            setMessage(
+              "采音尚未准备好，请保持安静后点击开始练习重试。无需完成逐弦校音。",
+            );
+            return;
+          }
+        }
         await audio.current!.open();
         if (!audio.current!.startRecording())
           setMessage("此浏览器暂不能录音回听，实时练习仍可进行。");
@@ -644,12 +657,27 @@ export default function GuzhengApp() {
         (f.rms > 0.025 && (f.midi === null || f.confidence < 0.8))
       )
         r.engine.untrusted(time - 0.1, time + 0.1);
-      if (f.attack !== null)
+      if (f.attack !== null) {
         r.engine.consume({
           at: f.attack - r.start,
           midi: f.peak > 0.98 ? null : f.midi,
           confidence: f.confidence,
         });
+        const recent = [...r.engine.results.values()]
+          .filter((e) => e.pitch !== undefined && e.actual !== undefined)
+          .slice(-5);
+        const offsets = recent.map((e) => {
+          const target = r.engine.timeline.events.find(
+            (n) => n.key === e.key,
+          )?.midi;
+          return target == null ? 0 : (e.actual! - target) * 100;
+        });
+        if (
+          offsets.filter((c) => c > 35 && c < 100).length >= 3 ||
+          offsets.filter((c) => c < -35 && c > -100).length >= 3
+        )
+          setTuningHint(true);
+      }
     };
   });
   const tuningReading = tuneMode === "fine" ? fineFrame : frame;
@@ -1023,13 +1051,12 @@ export default function GuzhengApp() {
                 <button
                   className="primary-button"
                   disabled={
-                    !completedTuning ||
                     sweepView.phase === "running" ||
                     sweepView.phase === "countdown"
                   }
                   onClick={() => select(score)}
                 >
-                  校音完成，去练习 →
+                  {completedTuning ? "校音完成，去练习 →" : "直接去练习 →"}
                 </button>
               </div>
             </div>
@@ -1128,10 +1155,9 @@ export default function GuzhengApp() {
                   </button>
                   <button
                     className="primary-button"
-                    disabled={!completedTuning}
                     onClick={() => select(score)}
                   >
-                    完成，去练习 →
+                    去练习 →
                   </button>
                 </div>
                 <TunerComparison
@@ -1313,9 +1339,10 @@ export default function GuzhengApp() {
                 {!demo && !completedTuning && (
                   <button
                     className="text-button"
+                    disabled={active || stage === "paused"}
                     onClick={() => navigate("tune")}
                   >
-                    先完成21弦校音 →
+                    可选：去校音 →
                   </button>
                 )}
                 <details>
@@ -1350,6 +1377,22 @@ export default function GuzhengApp() {
                   }
                 >
                   保存暂停录音 ↓
+                </button>
+              </div>
+            )}
+            {tuningHint && (
+              <div className="v-demo-banner" role="note">
+                多次听到音高偏差，可能是琴弦音不准，建议去校音；也请检查是否拨对弦。可以继续练习。
+                <button
+                  className="text-button"
+                  onClick={async () => {
+                    if (active) pause("已暂停，可先检查琴弦音准。");
+                    if (run.current) await finish(false);
+                    pageRef.current = "tune";
+                    setPage("tune");
+                  }}
+                >
+                  去校音（结束并保留本段） →
                 </button>
               </div>
             )}
@@ -1392,9 +1435,10 @@ export default function GuzhengApp() {
                 {stage === "ready" && (
                   <button
                     className="primary-button"
+                    disabled={opening}
                     onClick={() => void start()}
                   >
-                    ▶ 开始练习
+                    {opening ? "正在准备麦克风…" : "▶ 开始练习"}
                   </button>
                 )}
                 {active && (
@@ -1838,7 +1882,7 @@ export default function GuzhengApp() {
       <footer className="v-footer">
         <span>知音 · 数字生命 King</span>
         <span>先调准，再练稳。</span>
-        <span>试用版 V0.3.6</span>
+        <span>试用版 V0.3.7</span>
       </footer>
     </div>
   );
