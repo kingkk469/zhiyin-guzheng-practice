@@ -46,7 +46,7 @@ try {
   await page.getByRole("button", { name: "逐弦精调", exact: true }).click();
   await page.locator(".mobile-tune-actions").getByRole("button", { name: "开启麦克风", exact: true }).click();
   await page.getByText("环境已检查，请逐弦拨响", { exact: true }).waitFor({ state: "attached" });
-  const positions = () => page.evaluate(() => [".v-tuner > strong", ".cents-dial", ".fine-status", ".fine-offset", ".v-string-grid"].map(selector => { const r = document.querySelector(selector).getBoundingClientRect(); return { top: r.top + scrollY, height: r.height }; }));
+  const positions = () => page.evaluate(() => [".dial-note", ".cents-dial", ".fine-status", ".fine-offset", ".v-string-grid"].map(selector => { const r = document.querySelector(selector).getBoundingClientRect(); return { top: r.top + scrollY, height: r.height }; }));
   for (const viewport of [{width:390,height:844},{width:375,height:667}]) {
     await page.setViewportSize(viewport);
     const size = await page.evaluate(() => ({ height: document.documentElement.scrollHeight, width: document.documentElement.scrollWidth, viewport: innerHeight }));

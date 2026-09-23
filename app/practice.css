@@ -1823,7 +1823,7 @@
   display: block;
   width: 100%;
   height: auto;
-  aspect-ratio: 400 / 252;
+  aspect-ratio: 400 / 210;
   overflow: visible;
 }
 .dial-needle {
@@ -1992,10 +1992,48 @@
   }
 }
 
-@media (max-width:700px) {
- .compact-fine .v-demo-banner { padding: 5px 8px; margin: 0 0 5px; font-size: 10px; line-height: 16px; }
- .compact-fine:not(.show-tuning-help) .v-demo-banner p { display: none; }
+@media (max-width: 700px) {
+  .compact-fine .v-demo-banner {
+    padding: 5px 8px;
+    margin: 0 0 5px;
+    font-size: 10px;
+    line-height: 16px;
+  }
+  .compact-fine:not(.show-tuning-help) .v-demo-banner p {
+    display: none;
+  }
 }
 
-@media (max-width:700px) { body:has(.compact-fine) { padding-bottom: 0; } .compact-fine { min-height: 100dvh; } }
-@media (max-width:700px) and (max-height:700px) { .compact-fine .cents-dial { max-width: 190px; } .compact-fine .v-tuner { padding-top: 4px; padding-bottom:4px; } }
+@media (max-width: 700px) {
+  body:has(.compact-fine) {
+    padding-bottom: 0;
+  }
+  .compact-fine {
+    min-height: 100dvh;
+  }
+}
+@media (max-width: 700px) and (max-height: 700px) {
+  .compact-fine .cents-dial {
+    max-width: 190px;
+  }
+  .compact-fine .v-tuner {
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+}
+
+/* Give the scale the full phone width; the note now occupies its unused center. */
+@media (max-width: 700px) {
+  .compact-fine .cents-dial {
+    max-width: 100%;
+  }
+  .compact-fine .dial-range {
+    font-size: 11px;
+    height: 20px;
+  }
+  .compact-fine .v-tuner .fine-frequency {
+    font-size: 13px;
+  }
+}
+
+@media (max-width:700px) { .compact-fine .mobile-tune-toolbar { margin-bottom:0; } }

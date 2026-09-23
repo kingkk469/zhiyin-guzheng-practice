@@ -1,5 +1,11 @@
 /** One minor division is one cent. The dial scale does not claim detector accuracy. */
-export default function CentsDial({ cents }: { cents: number | null }) {
+export default function CentsDial({
+  cents,
+  note,
+}: {
+  cents: number | null;
+  note: string;
+}) {
   const valid = cents !== null && Math.abs(cents) <= 100;
   const angle = valid ? Math.max(-50, Math.min(50, cents)) * 1.2 : 0;
   const point = (degrees: number, radius: number) => {
@@ -9,7 +15,7 @@ export default function CentsDial({ cents }: { cents: number | null }) {
   return (
     <div className="cents-dial">
       <svg
-        viewBox="0 0 400 252"
+        viewBox="0 0 400 210"
         role="img"
         aria-label={
           valid
@@ -28,7 +34,7 @@ export default function CentsDial({ cents }: { cents: number | null }) {
             major = value % 10 === 0,
             mid = value % 5 === 0;
           const start = point(value * 1.2, 184),
-            end = point(value * 1.2, major ? 164 : mid ? 170 : 176),
+            end = point(value * 1.2, major ? 158 : mid ? 165 : 172),
             label = point(value * 1.2, 204);
           return (
             <g key={value} className="dial-tick" data-cent={value}>
@@ -37,8 +43,8 @@ export default function CentsDial({ cents }: { cents: number | null }) {
                 y1={start.y}
                 x2={end.x}
                 y2={end.y}
-                stroke={value === 0 ? "#315c4f" : "#706b5f"}
-                strokeWidth={major ? 1.6 : 0.8}
+                stroke={value === 0 ? "#315c4f" : "#454b43"}
+                strokeWidth={major ? 2.2 : mid ? 1.6 : 1.1}
               />
               {major && (
                 <text
@@ -46,7 +52,7 @@ export default function CentsDial({ cents }: { cents: number | null }) {
                   y={label.y}
                   textAnchor="middle"
                   dominantBaseline="middle"
-                  fontSize="12"
+                  fontSize="15"
                   fill="#454b43"
                 >
                   {value > 0 ? `+${value}` : value}
@@ -59,7 +65,7 @@ export default function CentsDial({ cents }: { cents: number | null }) {
           x1="200"
           y1="42"
           x2="200"
-          y2="218"
+          y2="82"
           stroke="#315c4f"
           strokeOpacity="0.16"
         />
@@ -72,16 +78,26 @@ export default function CentsDial({ cents }: { cents: number | null }) {
             transformOrigin: "200px 218px",
           }}
         >
-          <path d="M 198 216 L 200 40 L 202 216 Z" fill="#b44336" />
-          <circle cx="200" cy="218" r="6" fill="#b44336" />
+          <path d="M 197 83 L 200 36 L 203 83 Z" fill="#b44336" />
         </g>
-        <text x="200" y="160" textAnchor="middle" fontSize="12" fill="#706b5f">
+        <text
+          className="dial-note"
+          x="200"
+          y="158"
+          textAnchor="middle"
+          fontSize="70"
+          fontWeight="500"
+          fill="#203c33"
+        >
+          {note}
+        </text>
+        <text x="200" y="188" textAnchor="middle" fontSize="13" fill="#454b43">
           每小格 1 音分
         </text>
-        <text x="35" y="241" textAnchor="start" fontSize="13" fill="#706b5f">
+        <text x="35" y="188" textAnchor="start" fontSize="13" fill="#454b43">
           ♭ 偏低
         </text>
-        <text x="365" y="241" textAnchor="end" fontSize="13" fill="#706b5f">
+        <text x="365" y="188" textAnchor="end" fontSize="13" fill="#454b43">
           偏高 ♯
         </text>
       </svg>

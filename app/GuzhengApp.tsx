@@ -1058,11 +1058,6 @@ export default function GuzhengApp() {
                   {(440 * 2 ** ((STRINGS[tuning.index] - 69) / 12)).toFixed(2)}{" "}
                   Hz
                 </span>
-                <strong>
-                  {fineFrame?.midi !== null && fineFrame?.midi !== undefined
-                    ? noteName(fineFrame.midi)
-                    : "—"}
-                </strong>
                 <div className="fine-frequency">
                   {fineFrame?.midi != null
                     ? `${(440 * 2 ** ((fineFrame.midi - 69) / 12)).toFixed(2)} Hz · 读数已稳定`
@@ -1074,7 +1069,12 @@ export default function GuzhengApp() {
                           ? "等待拨弦"
                           : "正在确认，请单拨当前弦"}
                 </div>
-                <CentsDial cents={cents} />
+                <CentsDial
+                  cents={cents}
+                  note={
+                    fineFrame?.midi != null ? noteName(fineFrame.midi) : "—"
+                  }
+                />
                 <p className="fine-status">
                   {cents === null
                     ? "请重新拨响当前弦，等待读数稳定"
@@ -1838,7 +1838,7 @@ export default function GuzhengApp() {
       <footer className="v-footer">
         <span>知音 · 数字生命 King</span>
         <span>先调准，再练稳。</span>
-        <span>试用版 V0.3.5</span>
+        <span>试用版 V0.3.6</span>
       </footer>
     </div>
   );
