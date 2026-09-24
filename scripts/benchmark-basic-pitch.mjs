@@ -1,12 +1,14 @@
+import {
+  captureAttackEvidence,
+  organizeReviewCandidates,
+} from "../lib/review-candidates.mjs";
 // Local synthetic benchmark. No recordings are uploaded; no guzheng accuracy claim.
 import { createRequire } from "node:module";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { SCORES } from "../lib/scores.ts";
 import { makeTimeline } from "../lib/practice-core.ts";
-const require = createRequire(
-  new URL("../work/basic-pitch-lab/package.json", import.meta.url),
-);
+const require = createRequire(import.meta.url);
 const tf = require("@tensorflow/tfjs");
 const {
   BasicPitch,
@@ -14,7 +16,7 @@ const {
   noteFramesToTime,
 } = require("@spotify/basic-pitch");
 const modelDir = new URL(
-  "../work/basic-pitch-lab/node_modules/@spotify/basic-pitch/model/",
+  "../node_modules/@spotify/basic-pitch/model/",
   import.meta.url,
 );
 const json = JSON.parse(readFileSync(new URL("model.json", modelDir), "utf8"));
@@ -81,50 +83,59 @@ for (const decay of [8, 1]) {
     { name: "README example", onset: 0.25, frame: 0.25 },
     { name: "library defaults", onset: 0.5, frame: 0.3 },
   ]) {
-    const notes = noteFramesToTime(
-      outputToNotesPoly(
-        frames.map((r) => r.slice()),
-        onsets.map((r) => r.slice()),
-        settings.onset,
-        settings.frame,
-        5,
-      ),
+    const noteFrames = outputToNotesPoly(
+      frames.map((r) => r.slice()),
+      onsets.map((r) => r.slice()),
+      settings.onset,
+      settings.frame,
+      5,
     );
-    const used = new Set();
-    const matched = [];
-    for (const n of expected) {
-      const candidates = notes
-        .map((v, i) => ({ v, i }))
-        .filter(
-          ({ v, i }) =>
-            !used.has(i) &&
-            v.pitchMidi === n.midi &&
-            Math.abs(v.startTimeSeconds - n.at) <= 0.1,
-        )
-        .sort(
-          (a, b) =>
-            Math.abs(a.v.startTimeSeconds - n.at) -
-            Math.abs(b.v.startTimeSeconds - n.at),
-        );
-      if (candidates[0]) {
-        used.add(candidates[0].i);
-        matched.push(candidates[0].v.startTimeSeconds - n.at);
-      }
-    }
-    const result = {
-      settings: settings.name,
-      decay,
-      expected: expected.length,
-      detected: notes.length,
-      matchedWithin100ms: matched.length,
-      precision: matched.length / (notes.length || 1),
-      recall: matched.length / expected.length,
-      duration,
-      inferenceMs: Math.round(inferenceMs),
+    const notes = noteFramesToTime(noteFrames);
+    const review = organizeReviewCandidates(
       notes,
-    };
-    results.push(result);
-    console.log(JSON.stringify({ ...result, notes: undefined }));
+      captureAttackEvidence(frames, onsets, noteFrames),
+    );
+    for (const [stage, selected] of [
+      ["raw", notes],
+      ["organized", review.candidates.filter((n) => n.status !== "suspect")],
+    ]) {
+      const used = new Set();
+      const matched = [];
+      for (const n of expected) {
+        const candidates = selected
+          .map((v, i) => ({ v, i }))
+          .filter(
+            ({ v, i }) =>
+              !used.has(i) &&
+              v.pitchMidi === n.midi &&
+              Math.abs(v.startTimeSeconds - n.at) <= 0.1,
+          )
+          .sort(
+            (a, b) =>
+              Math.abs(a.v.startTimeSeconds - n.at) -
+              Math.abs(b.v.startTimeSeconds - n.at),
+          );
+        if (candidates[0]) {
+          used.add(candidates[0].i);
+          matched.push(candidates[0].v.startTimeSeconds - n.at);
+        }
+      }
+      const result = {
+        settings: settings.name,
+        stage,
+        decay,
+        expected: expected.length,
+        detected: selected.length,
+        matchedWithin100ms: matched.length,
+        precision: matched.length / (selected.length || 1),
+        recall: matched.length / expected.length,
+        duration,
+        inferenceMs: Math.round(inferenceMs),
+        notes: selected,
+      };
+      results.push(result);
+      console.log(JSON.stringify({ ...result, notes: undefined }));
+    }
   }
 }
 mkdirSync(new URL("../outputs/", import.meta.url), { recursive: true });

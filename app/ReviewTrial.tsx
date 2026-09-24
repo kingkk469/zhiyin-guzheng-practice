@@ -7,7 +7,21 @@ type HeardNote = {
   pitchMidi: number;
   amplitude: number;
 };
-type Result = { notes: HeardNote[]; backend: string; duration: number };
+type ReviewNote = HeardNote & {
+  rawIndex: number;
+  status: string;
+  reasons: string[];
+};
+type Result = {
+  notes: HeardNote[];
+  backend: string;
+  duration: number;
+  review: {
+    candidates: ReviewNote[];
+    retainedCount: number;
+    suspectCount: number;
+  };
+};
 
 export default function ReviewTrial({
   getRecording,
@@ -61,6 +75,7 @@ function ReviewSession({
     [message, setMessage] = useState(""),
     [progress, setProgress] = useState(0),
     [result, setResult] = useState<Result | null>(null),
+    [showAll, setShowAll] = useState(false),
     [name, setName] = useState(recording ? "本次练习录音" : "尚未选择录音");
   const stopTracks = () => {
     stream.current?.getTracks().forEach((t) => t.stop());
@@ -211,7 +226,7 @@ function ReviewSession({
         location.pathname.replace(/\/$/, "") + "/review-assets/",
         location.origin,
       ).href;
-      const w = new Worker(assets + "worker.js?v=0.5.0");
+      const w = new Worker(assets + "worker.js?v=0.5.1");
       worker.current = w;
       const finish = () => {
         w.terminate();
@@ -359,35 +374,50 @@ function ReviewSession({
         <>
           <div className="review-heading">
             <p>
-              识别出 <b>{result.notes.length}</b> 个音符事件
+              待核对 <b>{result.review.retainedCount}</b> 个候选；疑似多检{" "}
+              {result.review.suspectCount} 个
             </p>
             <button className="text-button" onClick={exportResult}>
               导出识别结果
             </button>
           </div>
           <small>
-            以下是模型听到的音，并非错音判定。余音可能产生多检，可点击回听。
+            原始候选共{result.notes.length}
+            个。整理结果不代表实际拨弦数或错音；疑似多检也可能是真音，请回听。模型响应不是正确概率。
           </small>
+          <label>
+            <input
+              type="checkbox"
+              checked={showAll}
+              onChange={(e) => setShowAll(e.target.checked)}
+            />{" "}
+            展开全部原始候选（含疑似多检）
+          </label>
           <div className="review-notes">
-            {result.notes.map((n, i) => (
-              <button
-                key={i}
-                onClick={() => {
-                  if (player.current) {
-                    player.current.currentTime = Math.max(
-                      0,
-                      n.startTimeSeconds - 0.12,
-                    );
-                    void player.current
-                      .play()
-                      .catch(() => setMessage("请点击录音播放器回听。"));
-                  }
-                }}
-              >
-                <strong>{noteName(n.pitchMidi)}</strong>
-                <span>{n.startTimeSeconds.toFixed(2)} 秒</span>
-              </button>
-            ))}
+            {result.review.candidates
+              .filter((n) => showAll || n.status !== "suspect")
+              .map((n) => (
+                <button
+                  key={n.rawIndex}
+                  onClick={() => {
+                    if (player.current) {
+                      player.current.currentTime = Math.max(
+                        0,
+                        n.startTimeSeconds - 0.12,
+                      );
+                      void player.current
+                        .play()
+                        .catch(() => setMessage("请点击录音播放器回听。"));
+                    }
+                  }}
+                >
+                  <strong>{noteName(n.pitchMidi)}</strong>
+                  <span>{n.startTimeSeconds.toFixed(2)} 秒</span>
+                  {showAll && (
+                    <small>{n.reasons.join("；") || "待回听核对"}</small>
+                  )}
+                </button>
+              ))}
           </div>
         </>
       )}

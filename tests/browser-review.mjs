@@ -92,6 +92,34 @@ try {
       `missing ${pitch}`,
     );
   assert.equal(result.mode, "experimental-transcription");
+  assert.equal(result.review.ruleVersion, "guzheng-candidates-1");
+  assert.equal(result.review.candidates.length, result.notes.length);
+  assert.equal(
+    await page.locator(".review-notes button").count(),
+    result.review.retainedCount,
+  );
+  for (const pitch of [62, 66, 69])
+    assert.ok(
+      result.review.candidates.some(
+        (n) => n.pitchMidi === pitch && n.status === "candidate",
+      ),
+    );
+  await page.getByRole("checkbox", { name: /展开全部原始候选/ }).check();
+  assert.equal(
+    await page.locator(".review-notes button").count(),
+    result.notes.length,
+  );
+  for (const n of result.review.candidates) {
+    const raw = result.notes[n.rawIndex];
+    for (const key of [
+      "pitchMidi",
+      "startTimeSeconds",
+      "durationSeconds",
+      "amplitude",
+    ])
+      assert.equal(n[key], raw[key]);
+  }
+  assert.ok(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth));
   assert.equal(uploads.length, 0);
   await page.locator(".review-notes button").first().click();
   assert.ok(await dialog.locator("audio").evaluate((a) => !a.paused));
@@ -152,6 +180,8 @@ try {
     JSON.stringify({
       backend: result.backend,
       notes: result.notes.length,
+      retained: result.review.retainedCount,
+      suspects: result.review.suspectCount,
       pitches: result.notes.map((n) => n.pitchMidi),
       uploads: uploads.length,
       checks: "decode, inference, replay, export, cancel, corrupt input, close",
