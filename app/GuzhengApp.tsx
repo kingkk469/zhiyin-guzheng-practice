@@ -11,6 +11,7 @@ import { TuningSweep, type SweepView } from "../lib/tuning-sweep";
 import { LocalAudio, type Frame } from "../lib/audio";
 import {
   PracticeEngine,
+  canAssessReport,
   TuningGate,
   STRINGS,
   makeTimeline,
@@ -1668,11 +1669,19 @@ export default function GuzhengApp() {
               <div className="v-analysis">
                 <div className="v-sub-scores">
                   <div>
-                    <b>{report.pitchScore ?? "—"}</b>
+                    <b>
+                      {canAssessReport(report)
+                        ? (report.pitchScore ?? "—")
+                        : "—"}
+                    </b>
                     <span>音符准确</span>
                   </div>
                   <div>
-                    <b>{report.rhythmScore ?? "—"}</b>
+                    <b>
+                      {canAssessReport(report)
+                        ? (report.rhythmScore ?? "—")
+                        : "—"}
+                    </b>
                     <span>节奏准确</span>
                   </div>
                   <div>
@@ -1680,7 +1689,11 @@ export default function GuzhengApp() {
                     <span>本次基础速度</span>
                   </div>
                 </div>
-                <p>{report.comment}</p>
+                <p>
+                  {canAssessReport(report)
+                    ? report.comment
+                    : "本次识别信息不足，暂不评价音符与节奏，也不生成针对演奏的纠错建议。未判断不代表弹错。"}
+                </p>
                 <small>
                   可评分范围：音高 {pct(report.pitchSupport)} / 节奏{" "}
                   {pct(report.rhythmSupport)}
@@ -1714,7 +1727,7 @@ export default function GuzhengApp() {
               </button>
             </div>
             <div className="v-suggestions">
-              {report.suggestions.length ? (
+              {canAssessReport(report) && report.suggestions.length ? (
                 report.suggestions.map((s, i) => (
                   <article key={s.measure}>
                     <span>0{i + 1}</span>
@@ -2051,7 +2064,7 @@ export default function GuzhengApp() {
       <footer className="v-footer">
         <span>知音 · 数字生命 King</span>
         <span>先调准，再练稳。</span>
-        <span>试用版 V0.4.2</span>
+        <span>试用版 V0.4.3</span>
       </footer>
     </div>
   );

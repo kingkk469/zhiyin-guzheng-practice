@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   PracticeEngine,
+  canAssessReport,
   TuningGate,
   STRINGS,
   makeTimeline,
@@ -311,20 +312,91 @@ test("dotted eighth and sixteenth share a beat beam, next beat is separate", () 
   assert.ok(!beatBeams(notes).some((b) => b.start === 0 && b.end >= 0.5));
 });
 
-test("late sixteenth is not mislabeled as early next note",()=>{
- const s=SCORES.find(s=>s.id==='daily-rhythm-2'); const t=makeTimeline(s,70); const e=new PracticeEngine(t);
- const n=t.events.find(n=>n.measure===2&&n.beat===.75);
- e.consume({at:n.time+.14,midi:n.midi,confidence:.99});
- const v=e.results.get(n.key);assert.equal(v.pitch,true);assert.ok(v.offset>0);
- assert.equal(e.results.size,1);
+test("late sixteenth is not mislabeled as early next note", () => {
+  const s = SCORES.find((s) => s.id === "daily-rhythm-2");
+  const t = makeTimeline(s, 70);
+  const e = new PracticeEngine(t);
+  const n = t.events.find((n) => n.measure === 2 && n.beat === 0.75);
+  e.consume({ at: n.time + 0.14, midi: n.midi, confidence: 0.99 });
+  const v = e.results.get(n.key);
+  assert.equal(v.pitch, true);
+  assert.ok(v.offset > 0);
+  assert.equal(e.results.size, 1);
 });
-test("lost tracking recovers without manufacturing a full score",()=>{
- const t=makeTimeline(score,60),e=new PracticeEngine(t);e.tick(8.1);assert.ok(e.lost);
- for(const n of t.events.filter(n=>n.measure===3).slice(0,3)) e.consume({at:n.time+.1,midi:n.midi,confidence:.99});
- assert.equal(e.lost,false);assert.ok(e.hadTrackingLoss);assert.equal(e.report(score,true).total,null);
+
+test("a delayed correct phrase keeps its pitch positions and its actual timing offsets", () => {
+  const s = SCORES.find((s) => s.id === "daily-rhythm-2"),
+    t = makeTimeline(s, 70),
+    e = new PracticeEngine(t);
+  const notes = t.events.filter((n) => n.measure === 2);
+  for (const n of notes)
+    e.consume({ at: n.time + 0.23, midi: n.midi, confidence: 0.99 });
+  for (const n of notes) {
+    const v = e.results.get(n.key);
+    assert.equal(v.pitch, true);
+    assert.ok(Math.abs(v.offset - 230) < 0.01);
+    assert.equal(
+      v.rhythm,
+      0.5,
+      "a correct pitch must not erase the timing deviation",
+    );
+  }
+  assert.equal(e.extras.length, 0);
 });
-test("gentle settings tolerate small deviations but not a neighboring pitch",()=>{
- const t=makeTimeline(score,120), e=new PracticeEngine(t,{pitchCents:50,timingFraction:.22,minimumTimingMs:110,latencyMs:0});
- e.consume({at:.09,midi:62.4,confidence:.99}); assert.equal(e.results.get(t.events[0].key).pitch,true);assert.equal(e.results.get(t.events[0].key).rhythm,1);
- e.consume({at:.5,midi:65,confidence:.99});assert.equal(e.results.get(t.events[1].key).pitch,false);
+
+test("matching pitch outside the timing window cannot steal a wrong note", () => {
+  const t = makeTimeline(score, 60),
+    e = new PracticeEngine(t);
+  e.consume({ at: t.events[0].time, midi: t.events[1].midi, confidence: 0.99 });
+  assert.equal(e.results.get(t.events[0].key).kind, "wrong");
+  assert.equal(e.results.has(t.events[1].key), false);
+});
+
+test("low coverage reports with errors cannot prescribe corrective practice or show scores", () => {
+  const e = new PracticeEngine(makeTimeline(score, 60));
+  const n = e.timeline.events[0];
+  e.consume({ at: n.time, midi: n.midi + 1, confidence: 0.99 });
+  e.untrusted(0, e.timeline.duration + 1);
+  e.tick(e.timeline.duration + 1);
+  const r = e.report(score, true);
+  assert.equal(canAssessReport(r), false);
+  assert.equal(r.pitchScore, null);
+  assert.equal(r.rhythmScore, null);
+  assert.deepEqual(r.suggestions, []);
+  assert.equal(
+    canAssessReport({
+      ...r,
+      pitchCoverage: 1,
+      rhythmCoverage: 1,
+      pitchSupport: 1,
+      rhythmSupport: 1,
+      interrupted: false,
+    }),
+    true,
+  );
+});
+test("lost tracking recovers without manufacturing a full score", () => {
+  const t = makeTimeline(score, 60),
+    e = new PracticeEngine(t);
+  e.tick(8.1);
+  assert.ok(e.lost);
+  for (const n of t.events.filter((n) => n.measure === 3).slice(0, 3))
+    e.consume({ at: n.time + 0.1, midi: n.midi, confidence: 0.99 });
+  assert.equal(e.lost, false);
+  assert.ok(e.hadTrackingLoss);
+  assert.equal(e.report(score, true).total, null);
+});
+test("gentle settings tolerate small deviations but not a neighboring pitch", () => {
+  const t = makeTimeline(score, 120),
+    e = new PracticeEngine(t, {
+      pitchCents: 50,
+      timingFraction: 0.22,
+      minimumTimingMs: 110,
+      latencyMs: 0,
+    });
+  e.consume({ at: 0.09, midi: 62.4, confidence: 0.99 });
+  assert.equal(e.results.get(t.events[0].key).pitch, true);
+  assert.equal(e.results.get(t.events[0].key).rhythm, 1);
+  e.consume({ at: 0.5, midi: 65, confidence: 0.99 });
+  assert.equal(e.results.get(t.events[1].key).pitch, false);
 });

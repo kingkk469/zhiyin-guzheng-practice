@@ -1,5 +1,5 @@
 /** Pure, versioned practice rules. Audio and UI must not move the reference clock. */
-export const RULE_VERSION = "0.4.1-trial";
+export const RULE_VERSION = "0.4.3-trial";
 export type Note = {
   id: string;
   midi: number | null;
@@ -134,6 +134,25 @@ export const STRINGS = [
 ];
 export const clamp = (n: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, n));
+/** Also applies to locally saved reports produced by earlier rule versions. */
+export function canAssessReport(
+  r: Pick<
+    Report,
+    | "pitchCoverage"
+    | "rhythmCoverage"
+    | "pitchSupport"
+    | "rhythmSupport"
+    | "interrupted"
+  >,
+) {
+  return (
+    !r.interrupted &&
+    r.pitchCoverage >= 0.8 &&
+    r.rhythmCoverage >= 0.8 &&
+    r.pitchSupport >= 0.8 &&
+    r.rhythmSupport >= 0.8
+  );
+}
 export function validateScore(input: unknown): string[] {
   try {
     return validateScoreFields(input);
@@ -438,20 +457,26 @@ export class PracticeEngine {
           Math.abs(at - n.time) <= this.window(n),
       );
     candidates.sort((a, b) => {
-      // Only prefer pitch inside the existing timing window, never move the target clock.
+      // Within the bounded timing window, match the heard pitch before proximity.
+      // A short note can arrive after the next beat; proximity alone steals it
+      // for the next note and creates a chain of false pitch errors.
+      // Keep the actual offset: pitch matching must not forgive timing errors.
       const cost = (n: Event) =>
         Math.abs(n.time - at) +
         (c.midi !== null &&
         c.confidence >= 0.8 &&
         n.pitch &&
         Math.abs(c.midi - n.midi!) > this.settings.pitchCents / 100
-          ? 0.12
+          ? this.window(n) * 2
           : 0);
       return cost(a.n) - cost(b.n);
     });
     const candidate = candidates[0];
     if (!candidate) {
-      if (this.lost) { this.untrusted(at - .1, at + .15); return; }
+      if (this.lost) {
+        this.untrusted(at - 0.1, at + 0.15);
+        return;
+      }
       if (
         c.midi !== null &&
         c.confidence >= 0.8 &&
@@ -699,6 +724,13 @@ export class PracticeEngine {
             : null,
       };
     });
+    const assessmentReliable = canAssessReport({
+      pitchCoverage: pr.length / (p.length || 1),
+      rhythmCoverage: rr.length / (r.length || 1),
+      pitchSupport: p.length / count,
+      rhythmSupport: r.length / count,
+      interrupted: this.interrupted || this.lost || this.hadTrackingLoss,
+    });
     const correct = evaluations.filter(
       (e) => e.pitch === true && e.rhythm === 1,
     ).length;
@@ -717,8 +749,8 @@ export class PracticeEngine {
       completed,
       interrupted: this.interrupted || this.lost || this.hadTrackingLoss,
       demo,
-      pitchScore,
-      rhythmScore,
+      pitchScore: assessmentReliable ? pitchScore : null,
+      rhythmScore: assessmentReliable ? rhythmScore : null,
       total: reasons.length
         ? null
         : Math.round(pitchScore! * 0.6 + rhythmScore! * 0.4),
@@ -728,10 +760,10 @@ export class PracticeEngine {
       rhythmCoverage: rr.length / (r.length || 1),
       evaluations,
       reasons,
-      suggestions,
+      suggestions: assessmentReliable ? suggestions : [],
       speeds,
       comment: reasons.length
-        ? `${reasons.join("；")}。仅供参考，请先确认采音和演奏位置。`
+        ? `${reasons.join("；")}。本次结果不足以评价完整演奏，未判断不代表弹错。`
         : `本次按${this.timeline.bpm}拍完成，${correct}个音的音高与进入时间均在容差内。${suggestions[0]?.text ?? "本次支持范围内未发现需要重点重练的片段。"}`,
     };
   }
