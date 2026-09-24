@@ -10,10 +10,14 @@ page.on("pageerror", (e) => errors.push(e.message));
 await page.addInitScript(() => {
   window.__clicks = [];
   const originalSet = AudioParam.prototype.setValueAtTime;
-  AudioParam.prototype.setValueAtTime = function(value, at) { this.__scheduledValue = value; return originalSet.call(this, value, at); };
+  AudioParam.prototype.setValueAtTime = function (value, at) {
+    this.__scheduledValue = value;
+    return originalSet.call(this, value, at);
+  };
   const originalStart = OscillatorNode.prototype.start;
-  OscillatorNode.prototype.start = function(at) {
-    if (this.frequency.__scheduledValue >= 800) window.__clicks.push({at, frequency: this.frequency.__scheduledValue});
+  OscillatorNode.prototype.start = function (at) {
+    if (this.frequency.__scheduledValue >= 800)
+      window.__clicks.push({ at, frequency: this.frequency.__scheduledValue });
     return originalStart.call(this, at);
   };
   navigator.mediaDevices.getUserMedia = async () => {
@@ -54,7 +58,10 @@ try {
   await page.getByRole("radio", { name: /测音准模式/ }).check();
   await page.getByRole("button", { name: "▶ 开始练习", exact: true }).click();
   await page.waitForFunction(() =>
-    document.querySelector(".v-live")?.textContent.trim().startsWith("预备拍 ·"),
+    document
+      .querySelector(".v-live")
+      ?.textContent.trim()
+      .startsWith("预备拍 ·"),
   );
   await page.evaluate(() =>
     window.__syntheticInput.play(
@@ -82,6 +89,14 @@ try {
     (await page.locator("audio").count()) > 0,
     "recording playback exists",
   );
+  await page
+    .getByRole("button", { name: "试用新识别 · 录音复核", exact: true })
+    .click();
+  await page.getByRole("dialog").waitFor();
+  assert.ok(
+    (await page.getByRole("dialog").textContent()).includes("本次练习录音"),
+  );
+  await page.getByLabel("关闭录音复核").click();
   assert.deepEqual(errors, []);
   await mkdir("outputs", { recursive: true });
   await writeFile(

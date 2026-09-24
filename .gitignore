@@ -43,3 +43,5 @@ next-env.d.ts
 .dev-server.log
 *.tsbuildinfo
 lint-report.json
+
+/public/review-assets/

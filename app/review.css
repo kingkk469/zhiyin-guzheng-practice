@@ -1,0 +1,123 @@
+.review-entry {
+  margin: 18px 0 0;
+}
+.review-dialog {
+  width: min(680px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  border: 1px solid #c9c9b8;
+  border-radius: 18px;
+  padding: 24px;
+  background: #faf7ee;
+  color: #20372d;
+  box-shadow: 0 20px 80px #17271e44;
+  overflow-y: auto;
+}
+.review-dialog::backdrop {
+  background: #152a22aa;
+}
+.review-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.review-heading h2 {
+  font-size: 25px;
+  margin: 8px 0;
+}
+.review-dialog p {
+  line-height: 1.7;
+  font-size: 15px;
+}
+.review-dialog small {
+  display: block;
+  line-height: 1.7;
+  color: #637368;
+}
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0;
+}
+.review-actions button,
+.review-actions label {
+  min-height: 44px;
+  font-size: 15px;
+}
+.review-actions label {
+  position: relative;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+.review-actions input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.review-actions label:focus-within {
+  outline: 2px solid #b98131;
+  outline-offset: 2px;
+}
+.review-dialog audio {
+  width: 100%;
+  margin: 12px 0;
+}
+.review-filename {
+  overflow-wrap: anywhere;
+}
+.review-dialog progress {
+  width: 100%;
+  accent-color: #315a49;
+}
+.review-notes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 12px 0;
+}
+.review-notes button {
+  background: #edeede;
+  border: 1px solid #cdd0bb;
+  border-radius: 8px;
+  padding: 12px 5px;
+  color: #254636;
+  display: grid;
+  gap: 5px;
+}
+.review-notes strong {
+  font-size: 23px;
+}
+.review-notes span {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.review-credit {
+  border-top: 1px solid #d4d4c5;
+  padding-top: 14px;
+  margin-top: 16px;
+}
+@media (max-width: 500px) {
+  .review-dialog {
+    padding: 18px;
+  }
+  .review-heading h2 {
+    font-size: 21px;
+  }
+}
+
+.review-dialog .text-button {
+  width: auto;
+  margin-top: 0;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.review-heading > :first-child {
+  flex: 1;
+  min-width: 0;
+}

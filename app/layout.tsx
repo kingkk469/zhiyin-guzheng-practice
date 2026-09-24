@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./practice.css";
+import "./review.css";
 
 export function generateMetadata(): Metadata {
   const origin =

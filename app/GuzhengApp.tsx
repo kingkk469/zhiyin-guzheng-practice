@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Metronome, type ClickTone } from "../lib/metronome";
 import { FineTuningInput } from "../lib/fine-tuning";
 import Sheet from "./NumberedSheet";
+import ReviewTrial from "./ReviewTrial";
 import StringGuide from "./StringGuide";
 import CentsDial from "./CentsDial";
 import TunerComparison from "./TunerComparison";
@@ -191,6 +192,12 @@ export default function GuzhengApp() {
       to,
     ),
     active = stage === "playing" || stage === "countdown";
+  function prepareReview() {
+    stopPreview();
+    audio.current?.close();
+    setMic(false);
+    environmentOK.current = false;
+  }
   function stopPreview() {
     audio.current?.stopPreview();
     demoAudio.current?.pause();
@@ -807,6 +814,9 @@ export default function GuzhengApp() {
         )}
         {page === "home" && (
           <>
+            <div className="review-entry">
+              <ReviewTrial onOpen={prepareReview} />
+            </div>
             <section className="v-hero">
               <div>
                 <span className="eyebrow">知音 · 陪你把这一曲弹好</span>
@@ -1788,6 +1798,10 @@ export default function GuzhengApp() {
             )}
             <div className="v-recording">
               <h3>本次录音</h3>
+              <ReviewTrial
+                onOpen={prepareReview}
+                getRecording={() => recordedBlob.current}
+              />
               {recordingUrl ? (
                 <>
                   <audio
@@ -2064,7 +2078,7 @@ export default function GuzhengApp() {
       <footer className="v-footer">
         <span>知音 · 数字生命 King</span>
         <span>先调准，再练稳。</span>
-        <span>试用版 V0.4.3</span>
+        <span>试用版 V0.5.0</span>
       </footer>
     </div>
   );
