@@ -121,3 +121,42 @@
   flex: 1;
   min-width: 0;
 }
+
+.review-notebook {
+  border-top: 1px solid #d4d4c5;
+  margin-top: 20px;
+  padding-top: 12px;
+}
+.review-notebook textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  margin: 8px 0;
+  padding: 10px;
+  border: 1px solid #aab9ac;
+  border-radius: 8px;
+  background: #fffdf6;
+  color: #20372d;
+}
+.review-notebook summary {
+  cursor: pointer;
+  padding: 12px 0;
+}
+.review-notebook .review-sample {
+  display: block;
+  width: 100%;
+  white-space: normal;
+  text-align: left;
+  overflow-wrap: anywhere;
+  margin: 8px 0;
+}
+.review-notebook .review-actions button {
+  white-space: normal;
+}
+.review-comparison {
+  padding: 8px;
+  background: #edeede;
+  border-radius: 8px;
+  margin-top: 12px;
+}

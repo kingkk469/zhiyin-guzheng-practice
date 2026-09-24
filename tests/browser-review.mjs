@@ -124,9 +124,96 @@ try {
   await page.locator(".review-notes button").first().click();
   assert.ok(await dialog.locator("audio").evaluate((a) => !a.paused));
   await dialog.screenshot({ path: "outputs/review-mobile.png" });
+  // Original bytes are downloadable before/after reload, not the 22050Hz model input.
+  const downloadNamed = async (name) => {
+    const [d] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByRole("button", { name, exact: true }).click(),
+    ]);
+    return readFile(await d.path());
+  };
+  assert.deepEqual(await downloadNamed("下载原始录音"), wav());
+  await page.getByLabel("实际弹奏的音符序列").fill("D4 F#4 A4");
+  await page.getByRole("button", { name: "保存纠正答案", exact: true }).click();
   await page
-    .getByRole("button", { name: "开始新引擎识别", exact: true })
+    .getByText("纠正答案已保存；只用于对照，不会改变模型识别。", {
+      exact: true,
+    })
+    .waitFor();
+  assert.ok(
+    (await page.locator(".review-comparison").innerText()).includes("匹配3"),
+  );
+  const backup = await downloadNamed("下载完整备份（含录音）");
+  const exported = JSON.parse(backup.toString());
+  assert.equal(exported.truth, "D4 F#4 A4");
+  assert.equal(exported.runs.length, 1);
+  assert.deepEqual(
+    Buffer.from(exported.audioDataUrl.split(",")[1], "base64"),
+    wav(),
+  );
+  await page.reload();
+  await page
+    .getByRole("button", { name: "试用新识别 · 录音复核", exact: true })
     .click();
+  await page.getByText("打开已保存样本（1）", { exact: true }).click();
+  await page.locator(".review-sample").first().click();
+  assert.equal(
+    await page.getByLabel("实际弹奏的音符序列").inputValue(),
+    "D4 F#4 A4",
+  );
+  assert.deepEqual(await downloadNamed("下载原始录音"), wav());
+  // Restore adds a new sample instead of replacing a newer local correction.
+  await page
+    .getByLabel("恢复完整备份")
+    .setInputFiles({
+      name: "sample.json",
+      mimeType: "application/json",
+      buffer: backup,
+    });
+  await page.getByText("打开已保存样本（2）", { exact: true }).waitFor();
+  await page.getByText("打开已保存样本（2）", { exact: true }).click();
+  await page
+    .getByRole("button", { name: "依次复测所有已纠正样本", exact: true })
+    .click();
+  await page
+    .getByText("整组复测完成，各样本已保留本次结果，可在样本库查看对照。", {
+      exact: true,
+    })
+    .waitFor({ timeout: 180000 });
+  const savedRuns = await page.evaluate(
+    () =>
+      new Promise((resolve, reject) => {
+        const req = indexedDB.open("zhiyin-review-samples-v1", 1);
+        req.onsuccess = () => {
+          const db = req.result,
+            tx = db.transaction("samples"),
+            q = tx.objectStore("samples").getAll();
+          tx.oncomplete = () => {
+            resolve(
+              q.result.map((s) => ({
+                truth: s.truth,
+                runs: s.runs.length,
+                ids: s.runs.map((r) => r.id),
+              })),
+            );
+            db.close();
+          };
+          tx.onerror = () => reject(tx.error);
+        };
+        req.onerror = () => reject(req.error);
+      }),
+  );
+  assert.equal(savedRuns.length, 2);
+  assert.ok(
+    savedRuns.every(
+      (s) =>
+        s.truth === "D4 F#4 A4" && s.runs === 2 && new Set(s.ids).size === 2,
+    ),
+  );
+  await page.getByLabel("实际弹奏的音符序列").scrollIntoViewIfNeeded();
+  await dialog.screenshot({ path: "outputs/review-notebook-mobile.png" });
+  await page.getByText("打开已保存样本（2）", {exact:true}).click();
+  await page.getByRole("button", {name:"依次复测所有已纠正样本",exact:true}).click();
   await page.getByRole("button", { name: "取消处理", exact: true }).click();
   await page.getByRole("status").filter({ hasText: "已取消" }).waitFor();
   await page.getByLabel("选择手机录音").setInputFiles({
@@ -173,9 +260,40 @@ try {
     ),
   );
   await page.evaluate(() => window.__trialContext.close());
+  const captured = await downloadNamed("下载原始录音");
+  assert.ok(captured.length > 100);
+  await page
+    .getByText("已保存到本机样本库，可关闭后重新打开。", { exact: true })
+    .waitFor();
   await page.getByLabel("关闭录音复核").click();
   assert.equal(await page.getByRole("dialog").count(), 0);
   assert.deepEqual(errors, []);
+  // Storage failure must never masquerade as saved or disable the raw download.
+  const failure = await browser.newPage({
+    viewport: { width: 390, height: 844 },
+  });
+  await failure.addInitScript(() => {
+    IDBFactory.prototype.open = function () {
+      throw new DOMException("Storage unavailable", "QuotaExceededError");
+    };
+  });
+  await failure.goto(
+    process.env.TEST_BASE_URL ??
+      "http://127.0.0.1:3219/zhiyin-guzheng-practice/",
+  );
+  await failure
+    .getByRole("button", { name: "试用新识别 · 录音复核", exact: true })
+    .click();
+  await failure
+    .getByLabel("选择手机录音")
+    .setInputFiles({ name: "keep.wav", mimeType: "audio/wav", buffer: wav() });
+  await failure.getByText(/本机保存失败/).waitFor();
+  const [fallback] = await Promise.all([
+    failure.waitForEvent("download"),
+    failure.getByRole("button", { name: "下载原始录音", exact: true }).click(),
+  ]);
+  assert.deepEqual(await readFile(await fallback.path()), wav());
+  await failure.close();
   console.log(
     JSON.stringify({
       backend: result.backend,
@@ -184,7 +302,8 @@ try {
       suspects: result.review.suspectCount,
       pitches: result.notes.map((n) => n.pitchMidi),
       uploads: uploads.length,
-      checks: "decode, inference, replay, export, cancel, corrupt input, close",
+      checks:
+        "inference, original-byte download, persisted reload, correction, backup restore, sequential replay history, cancel, corrupt input, recorded download, storage failure fallback, close",
     }),
   );
 } finally {

@@ -1,6 +1,12 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { noteName } from "../lib/music-core.mjs";
+import ReviewNotebook from "./ReviewNotebook";
+import {
+  newSample,
+  updateSample,
+  type ReviewSample,
+} from "../lib/review-samples";
 type HeardNote = {
   startTimeSeconds: number;
   durationSeconds: number;
@@ -13,6 +19,7 @@ type ReviewNote = HeardNote & {
   reasons: string[];
 };
 type Result = {
+  runId?: string;
   notes: HeardNote[];
   backend: string;
   duration: number;
@@ -64,10 +71,15 @@ function ReviewSession({
     timer = useRef<ReturnType<typeof setInterval> | null>(null),
     alive = useRef(true),
     generation = useRef(0),
+    batchActive = useRef(false),
+    settle = useRef<((ok: boolean) => void) | null>(null),
     player = useRef<HTMLAudioElement>(null),
     context = useRef<AudioContext | null>(null),
     watchdog = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [blob, setBlob] = useState<Blob | null>(recording ?? null),
+    [sample, setSample] = useState<ReviewSample | null>(() =>
+      recording ? newSample(recording, "本次练习录音") : null,
+    ),
     [url, setUrl] = useState(""),
     [busy, setBusy] = useState(false),
     [recordingNow, setRecordingNow] = useState(false),
@@ -76,6 +88,7 @@ function ReviewSession({
     [progress, setProgress] = useState(0),
     [result, setResult] = useState<Result | null>(null),
     [showAll, setShowAll] = useState(false),
+    [batchProgress, setBatchProgress] = useState(""),
     [name, setName] = useState(recording ? "本次练习录音" : "尚未选择录音");
   const stopTracks = () => {
     stream.current?.getTracks().forEach((t) => t.stop());
@@ -88,6 +101,10 @@ function ReviewSession({
     stopTracks();
   };
   const cancel = () => {
+    batchActive.current = false;
+    setBatchProgress("");
+    settle.current?.(false);
+    settle.current = null;
     generation.current++;
     worker.current?.terminate();
     worker.current = null;
@@ -102,6 +119,8 @@ function ReviewSession({
     dialog.current?.showModal();
     return () => {
       alive.current = false;
+      batchActive.current = false;
+      settle.current?.(false);
       worker.current?.terminate();
       if (timer.current) clearInterval(timer.current);
       if (watchdog.current) clearTimeout(watchdog.current);
@@ -119,8 +138,23 @@ function ReviewSession({
       URL.revokeObjectURL(u);
     };
   }, [blob]);
-  function choose(b: Blob, label: string) {
+  useEffect(() => {
+    if (!recordingNow) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [recordingNow]);
+  function choose(b: Blob, label: string, existing?: ReviewSample) {
+    if (b.size > 20 * 1024 * 1024) {
+      setMessage("请选择20MB以内的录音。");
+      return;
+    }
+    player.current?.pause();
     setBlob(b);
+    setSample(existing ?? newSample(b, label));
     setName(label);
     setResult(null);
     setMessage("");
@@ -153,6 +187,7 @@ function ReviewSession({
       stream.current = s;
       const r = new MediaRecorder(s),
         chunks: Blob[] = [];
+      const capturedSample = newSample(new Blob(), "刚录制的片段");
       recorder.current = r;
       r.ondataavailable = (e) => {
         if (e.data.size) chunks.push(e.data);
@@ -161,11 +196,17 @@ function ReviewSession({
         stopTracks();
         if (timer.current) clearInterval(timer.current);
         timer.current = null;
+        const original = new Blob(chunks, { type: r.mimeType });
+        const captured = { ...capturedSample, audio: original };
+        // Persist finalized original bytes even if the dialog unmounted while stopping.
+        if (original.size)
+          void updateSample(captured.id, (old) => old ?? captured).catch(
+            () => {},
+          );
         if (!alive.current) return;
         setRecordingNow(false);
         setBusy(false);
-        if (chunks.length)
-          choose(new Blob(chunks, { type: r.mimeType }), "刚录制的片段");
+        if (chunks.length) choose(original, "刚录制的片段", captured);
         else setMessage("没有录到声音，请重试。");
       };
       r.onerror = () => {
@@ -191,8 +232,8 @@ function ReviewSession({
       }
     }
   }
-  async function analyze() {
-    if (!blob) return;
+  async function analyze(input = blob, target = sample): Promise<boolean> {
+    if (!input) return false;
     player.current?.pause();
     setBusy(true);
     setResult(null);
@@ -200,15 +241,15 @@ function ReviewSession({
     setMessage("正在读取录音…");
     const id = ++generation.current;
     try {
-      if (blob.size > 20 * 1024 * 1024)
+      if (input.size > 20 * 1024 * 1024)
         throw Error("请选取20MB以内、30秒以内的短录音。");
       const ctx = new AudioContext();
       context.current = ctx;
       await ctx.resume();
-      const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
+      const decoded = await ctx.decodeAudioData(await input.arrayBuffer());
       await ctx.close();
       context.current = null;
-      if (!alive.current || generation.current !== id) return;
+      if (!alive.current || generation.current !== id) return false;
       if (decoded.duration > 30 || decoded.duration < 0.2)
         throw Error("试用版请选取0.2～30秒的短录音。");
       const offline = new OfflineAudioContext(
@@ -221,54 +262,87 @@ function ReviewSession({
       source.connect(offline.destination);
       source.start();
       const pcm = (await offline.startRendering()).getChannelData(0).slice();
-      if (!alive.current || generation.current !== id) return;
+      if (!alive.current || generation.current !== id) return false;
       const assets = new URL(
         location.pathname.replace(/\/$/, "") + "/review-assets/",
         location.origin,
       ).href;
       const w = new Worker(assets + "worker.js?v=0.5.1");
       worker.current = w;
-      const finish = () => {
-        w.terminate();
-        worker.current = null;
-        if (watchdog.current) clearTimeout(watchdog.current);
-        watchdog.current = null;
-        setBusy(false);
-      };
-      w.onmessage = ({ data }) => {
-        if (!alive.current || generation.current !== id) return;
-        if (data.type === "progress") {
-          setProgress(data.progress);
-          setMessage(data.text);
-        }
-        if (data.type === "done") {
-          setResult(data);
-          setProgress(100);
-          setMessage(
-            data.notes.length
-              ? "识别完成，点音符回听核对。"
-              : "没有识别到音符，请换一段清晰的录音。",
-          );
-          finish();
-        }
-        if (data.type === "error") {
-          setMessage("识别未完成：" + data.message);
-          finish();
-        }
-      };
-      w.onerror = () => {
-        if (alive.current && generation.current === id) {
-          setMessage("本机识别未能启动，请重试或换用Safari。");
-          finish();
-        }
-      };
-      watchdog.current = setTimeout(() => {
-        if (alive.current && generation.current === id) {
-          setMessage("这段录音处理时间过长，请改试5～10秒片段。");
-          finish();
-        }
-      }, 180000);
-      w.postMessage({ samples: pcm, assets }, [pcm.buffer]);
+      return await new Promise<boolean>((resolve) => {
+        settle.current = resolve;
+        const finish = () => {
+          w.terminate();
+          worker.current = null;
+          if (watchdog.current) clearTimeout(watchdog.current);
+          watchdog.current = null;
+          setBusy(false);
+        };
+        w.onmessage = async ({ data }) => {
+          if (!alive.current || generation.current !== id) return;
+          if (data.type === "progress") {
+            setProgress(data.progress);
+            setMessage(data.text);
+          }
+          if (data.type === "done") {
+            const completed = { ...data, runId: crypto.randomUUID() };
+            setResult(completed);
+            setProgress(100);
+            setMessage(
+              data.notes.length
+                ? "识别完成，点音符回听核对。"
+                : "没有识别到音符，请换一段清晰的录音。",
+            );
+            finish();
+            try {
+              if (target)
+                await updateSample(target.id, (old) => {
+                  const current = old ?? target;
+                  return current.runs.some((r) => r.id === completed.runId)
+                    ? current
+                    : {
+                        ...current,
+                        runs: [
+                          ...current.runs,
+                          {
+                            id: completed.runId,
+                            createdAt: new Date().toISOString(),
+                            appVersion: "0.6.0",
+                            result: completed,
+                          },
+                        ],
+                      };
+                });
+              resolve(true);
+            } catch {
+              setMessage(
+                "识别完成，但保存失败。请下载原始录音和完整备份后再继续。",
+              );
+              resolve(false);
+            }
+          }
+          if (data.type === "error") {
+            setMessage("识别未完成：" + data.message);
+            finish();
+            resolve(false);
+          }
+        };
+        w.onerror = () => {
+          if (alive.current && generation.current === id) {
+            setMessage("本机识别未能启动，请重试或换用Safari。");
+            finish();
+            resolve(false);
+          }
+        };
+        watchdog.current = setTimeout(() => {
+          if (alive.current && generation.current === id) {
+            setMessage("这段录音处理时间过长，请改试5～10秒片段。");
+            finish();
+            resolve(false);
+          }
+        }, 180000);
+        w.postMessage({ samples: pcm, assets }, [pcm.buffer]);
+      });
     } catch (e) {
       if (context.current) void context.current.close().catch(() => {});
       context.current = null;
@@ -278,7 +352,28 @@ function ReviewSession({
         );
         setBusy(false);
       }
+      return false;
     }
+  }
+  async function replayAll(samples: ReviewSample[]) {
+    if (busy || recordingNow || batchActive.current) return;
+    batchActive.current = true;
+    for (let i = 0; i < samples.length; i++) {
+      if (!alive.current || !batchActive.current) break;
+      setBatchProgress(`整组复测 ${i + 1}/${samples.length}，请保持页面打开`);
+      const s = samples[i];
+      choose(s.audio, s.name, s);
+      if (!(await analyze(s.audio, s))) {
+        batchActive.current = false;
+        break;
+      }
+    }
+    if (alive.current) {
+      setBatchProgress("");
+      if (batchActive.current)
+        setMessage("整组复测完成，各样本已保留本次结果，可在样本库查看对照。");
+    }
+    batchActive.current = false;
   }
   function exportResult() {
     if (!result) return;
@@ -309,7 +404,12 @@ function ReviewSession({
       ref={dialog}
       className="review-dialog"
       aria-labelledby="review-title"
-      onCancel={close}
+      onCancel={(e) => {
+        if (recordingNow) {
+          e.preventDefault();
+          setMessage("请先停止录音，保存后再关闭。");
+        } else close();
+      }}
     >
       <div className="review-heading">
         <div>
@@ -319,6 +419,7 @@ function ReviewSession({
         <button
           className="text-button"
           aria-label="关闭录音复核"
+          disabled={recordingNow}
           onClick={close}
         >
           关闭
@@ -327,7 +428,11 @@ function ReviewSession({
       <p>先试一小段连续拨弦。录音不会上传；本次只核对识别结果，不打分。</p>
       <div className="review-actions">
         {!recordingNow ? (
-          <button className="secondary-button" disabled={busy} onClick={record}>
+          <button
+            className="secondary-button"
+            disabled={busy || !!batchProgress}
+            onClick={record}
+          >
             直接录一段
           </button>
         ) : (
@@ -341,7 +446,7 @@ function ReviewSession({
             aria-label="选择手机录音"
             type="file"
             accept="audio/*,.m4a,.wav,.mp3,.webm"
-            disabled={busy || recordingNow}
+            disabled={busy || recordingNow || !!batchProgress}
             onChange={(e) => {
               const f = e.target.files?.[0];
               if (f) choose(f, f.name);
@@ -355,12 +460,12 @@ function ReviewSession({
       <div className="review-actions">
         <button
           className="primary-button"
-          disabled={!blob || busy || recordingNow}
-          onClick={analyze}
+          disabled={!blob || busy || recordingNow || !!batchProgress}
+          onClick={() => void analyze()}
         >
           开始新引擎识别
         </button>
-        {busy && (
+        {(busy || !!batchProgress) && (
           <button className="text-button" onClick={cancel}>
             取消处理
           </button>
@@ -369,6 +474,7 @@ function ReviewSession({
       <p role="status" aria-live="polite">
         {message}
       </p>
+      {batchProgress && <p>{batchProgress}</p>}
       {busy && <progress aria-label="识别进度" max={100} value={progress} />}
       {result && (
         <>
@@ -421,6 +527,19 @@ function ReviewSession({
           </div>
         </>
       )}
+      <ReviewNotebook
+        key={sample?.id ?? "library"}
+        sample={sample}
+        result={result}
+        disabled={busy || recordingNow || !!batchProgress}
+        replayAll={(samples) => void replayAll(samples)}
+        select={(selected) => {
+          choose(selected.audio, selected.name, selected);
+          setResult(
+            (selected.runs.at(-1)?.result as Result | undefined) ?? null,
+          );
+        }}
+      />
       <small className="review-credit">
         Spotify Basic Pitch · Apache-2.0 ·
         首次使用需下载模型。建议Safari打开，录制时请关闭外放节拍器或戴耳机。
