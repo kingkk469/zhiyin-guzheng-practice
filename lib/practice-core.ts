@@ -1,5 +1,5 @@
 /** Pure, versioned practice rules. Audio and UI must not move the reference clock. */
-export const RULE_VERSION = "0.3.0-trial";
+export const RULE_VERSION = "0.4.1-trial";
 export type Note = {
   id: string;
   midi: number | null;
@@ -85,6 +85,12 @@ export type Capture = {
   confidence: number;
 };
 export type Report = {
+  judging?: {
+    pitchCents: number;
+    timingFraction: number;
+    minimumTimingMs: number;
+    latencyMs: number;
+  };
   mode?: "follow" | "assessment";
   id: string;
   createdAt: string;
@@ -378,6 +384,8 @@ export class PracticeEngine {
   lastMatched = -1;
   startedAt = 0;
   lost = false;
+  hadTrackingLoss = false;
+  recoveryMatches = 0;
   interrupted = false;
   lastReliableTime = 0;
   lossReason: "repeat" | "unmatched" | null = null;
@@ -429,11 +437,21 @@ export class PracticeEngine {
           !this.results.has(n.key) &&
           Math.abs(at - n.time) <= this.window(n),
       );
-    candidates.sort(
-      (a, b) => Math.abs(a.n.time - at) - Math.abs(b.n.time - at),
-    );
+    candidates.sort((a, b) => {
+      // Only prefer pitch inside the existing timing window, never move the target clock.
+      const cost = (n: Event) =>
+        Math.abs(n.time - at) +
+        (c.midi !== null &&
+        c.confidence >= 0.8 &&
+        n.pitch &&
+        Math.abs(c.midi - n.midi!) > this.settings.pitchCents / 100
+          ? 0.12
+          : 0);
+      return cost(a.n) - cost(b.n);
+    });
     const candidate = candidates[0];
     if (!candidate) {
+      if (this.lost) { this.untrusted(at - .1, at + .15); return; }
       if (
         c.midi !== null &&
         c.confidence >= 0.8 &&
@@ -483,6 +501,20 @@ export class PracticeEngine {
       actual: c.midi,
       at,
     });
+    if (this.lost) {
+      this.recoveryMatches = pitch === true ? this.recoveryMatches + 1 : 0;
+      this.results.set(n.key, {
+        key: n.key,
+        measure: n.measure,
+        kind: "uncertain",
+        at,
+      });
+      if (this.recoveryMatches < 3) return;
+      this.lost = false;
+      this.lossReason = null;
+      this.recoveryMatches = 0;
+      this.recent = [];
+    }
     this.lastMatched = i;
     this.lastReliableTime = at;
     // Require three consecutive, mostly mismatching pitches matching an earlier phrase.
@@ -518,6 +550,7 @@ export class PracticeEngine {
             actual / expected < 1.5
           ) {
             this.lost = true;
+            this.hadTrackingLoss = true;
             this.lossReason = "repeat";
             for (const x of this.recent)
               this.results.set(x.event.key, {
@@ -541,11 +574,13 @@ export class PracticeEngine {
         time <= n.time + this.window(n)
       )
         continue;
-      const uncertain = this.questionable.some(
-        (q) =>
-          q.end >= n.time - this.window(n) &&
-          q.start <= n.time + this.window(n),
-      );
+      const uncertain =
+        this.lost ||
+        this.questionable.some(
+          (q) =>
+            q.end >= n.time - this.window(n) &&
+            q.start <= n.time + this.window(n),
+        );
       this.results.set(n.key, {
         key: n.key,
         measure: n.measure,
@@ -556,6 +591,7 @@ export class PracticeEngine {
     const recent = this.timeline.bars.filter((b) => b.end <= time).slice(-2);
     if (
       recent.length === 2 &&
+      this.lastReliableTime <= recent[0].start &&
       recent.every((b) => {
         const notes = this.timeline.events.filter(
           (n) =>
@@ -573,6 +609,7 @@ export class PracticeEngine {
       })
     ) {
       this.lost = true;
+      this.hadTrackingLoss = true;
       this.lossReason ??= "unmatched";
     }
   }
@@ -605,7 +642,8 @@ export class PracticeEngine {
       : null;
     const reasons: string[] = [];
     if (!completed) reasons.push("未完整完成本次范围");
-    if (this.interrupted || this.lost) reasons.push("采音中断或跟谱位置丢失");
+    if (this.interrupted || this.lost || this.hadTrackingLoss)
+      reasons.push("采音中断或跟谱位置丢失");
     if (p.length / count < 0.8 || r.length / count < 0.8)
       reasons.push("可评分内容不足80%");
     if (pr.length / (p.length || 1) < 0.8 || rr.length / (r.length || 1) < 0.8)
@@ -670,13 +708,14 @@ export class PracticeEngine {
       scoreId: s.id,
       scoreVersion: s.version,
       ruleVersion: RULE_VERSION,
+      judging: { ...this.settings },
       title: s.title,
       bpm: this.timeline.bpm,
       referenceBpm: s.bpm,
       from: this.timeline.from,
       to: this.timeline.to,
       completed,
-      interrupted: this.interrupted || this.lost,
+      interrupted: this.interrupted || this.lost || this.hadTrackingLoss,
       demo,
       pitchScore,
       rhythmScore,

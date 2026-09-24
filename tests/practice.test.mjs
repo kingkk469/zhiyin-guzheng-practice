@@ -310,3 +310,21 @@ test("dotted eighth and sixteenth share a beat beam, next beat is separate", () 
   notes[1].midi = null;
   assert.ok(!beatBeams(notes).some((b) => b.start === 0 && b.end >= 0.5));
 });
+
+test("late sixteenth is not mislabeled as early next note",()=>{
+ const s=SCORES.find(s=>s.id==='daily-rhythm-2'); const t=makeTimeline(s,70); const e=new PracticeEngine(t);
+ const n=t.events.find(n=>n.measure===2&&n.beat===.75);
+ e.consume({at:n.time+.14,midi:n.midi,confidence:.99});
+ const v=e.results.get(n.key);assert.equal(v.pitch,true);assert.ok(v.offset>0);
+ assert.equal(e.results.size,1);
+});
+test("lost tracking recovers without manufacturing a full score",()=>{
+ const t=makeTimeline(score,60),e=new PracticeEngine(t);e.tick(8.1);assert.ok(e.lost);
+ for(const n of t.events.filter(n=>n.measure===3).slice(0,3)) e.consume({at:n.time+.1,midi:n.midi,confidence:.99});
+ assert.equal(e.lost,false);assert.ok(e.hadTrackingLoss);assert.equal(e.report(score,true).total,null);
+});
+test("gentle settings tolerate small deviations but not a neighboring pitch",()=>{
+ const t=makeTimeline(score,120), e=new PracticeEngine(t,{pitchCents:50,timingFraction:.22,minimumTimingMs:110,latencyMs:0});
+ e.consume({at:.09,midi:62.4,confidence:.99}); assert.equal(e.results.get(t.events[0].key).pitch,true);assert.equal(e.results.get(t.events[0].key).rhythm,1);
+ e.consume({at:.5,midi:65,confidence:.99});assert.equal(e.results.get(t.events[1].key).pitch,false);
+});

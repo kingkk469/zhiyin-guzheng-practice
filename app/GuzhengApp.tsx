@@ -33,6 +33,7 @@ type Run = {
   stage: Stage;
   lastFrame: number;
   follow: boolean;
+  warnedLost: boolean;
 };
 const RECORDS = "zhiyin-v2-records",
   CUSTOM = "zhiyin-v2-scores",
@@ -87,6 +88,7 @@ export default function GuzhengApp() {
     [message, setMessage] = useState("");
   const metronome = useRef(new Metronome());
   const [clickTone, setClickTone] = useState<ClickTone>("wood");
+  const [judging, setJudging] = useState<"gentle" | "standard">("gentle");
   const [clickVolume, setClickVolume] = useState(0.7);
   const [practiceMode, setPracticeMode] = useState<"follow" | "assessment">(
     "follow",
@@ -402,9 +404,9 @@ export default function GuzhengApp() {
           (demo || follow ? performance.now() / 1000 : audio.current!.time) +
           0.12;
       const engine = new PracticeEngine(t, {
-        pitchCents: 35,
-        timingFraction: 0.15,
-        minimumTimingMs: 65,
+        pitchCents: judging === "gentle" ? 50 : 35,
+        timingFraction: judging === "gentle" ? 0.22 : 0.15,
+        minimumTimingMs: judging === "gentle" ? 110 : 65,
         latencyMs: latency,
       });
       if (follow) engine.untrusted(-t.countIn, t.duration + 1);
@@ -427,6 +429,7 @@ export default function GuzhengApp() {
         stage: "countdown",
         lastFrame: now,
         follow,
+        warnedLost: false,
       };
       setStage("countdown");
       setElapsed(-t.countIn);
@@ -577,13 +580,11 @@ export default function GuzhengApp() {
         }
       }
       r.engine.tick(t);
-      if (r.engine.lost && !r.follow) {
-        pauseRef.current(
-          r.engine.lossReason === "repeat"
-            ? "检测到回头重弹，已暂停。请选择恢复小节。"
-            : "连续两小节未能定位，已暂停。请选择恢复小节。",
+      if (r.engine.lost && !r.follow && !r.warnedLost) {
+        r.warnedLost = true;
+        setMessage(
+          "暂时未能跟上演奏位置，曲谱和节拍继续。当前不确定部分不判错，请按光标继续，也可手动暂停重练。",
         );
-        return;
       }
       if (t >= r.engine.timeline.duration + 1) finishRef.current(true);
     }, 50);
@@ -745,6 +746,7 @@ export default function GuzhengApp() {
           r.scoreId === report.scoreId &&
           r.scoreVersion === report.scoreVersion &&
           r.ruleVersion === report.ruleVersion &&
+          JSON.stringify(r.judging) === JSON.stringify(report.judging) &&
           r.bpm === report.bpm &&
           r.from === report.from &&
           r.to === report.to &&
@@ -1465,6 +1467,25 @@ export default function GuzhengApp() {
                       : "直接跟着光标和节拍练习，不需要开启麦克风。"}
                   </small>
                 </fieldset>
+                {practiceMode === "assessment" && (
+                  <label>
+                    判定宽容度
+                    <select
+                      aria-label="判定宽容度"
+                      value={judging}
+                      disabled={active || opening}
+                      onChange={(e) =>
+                        setJudging(e.target.value as "gentle" | "standard")
+                      }
+                    >
+                      <option value="gentle">宽松（默认）</option>
+                      <option value="standard">标准</option>
+                    </select>
+                    <small>
+                      宽松允许较小的音高与进入时间偏差，不改变目标速度。识别不确定时不判错。
+                    </small>
+                  </label>
+                )}
                 <details>
                   <summary>采音时差校正</summary>
                   <p>
@@ -2030,7 +2051,7 @@ export default function GuzhengApp() {
       <footer className="v-footer">
         <span>知音 · 数字生命 King</span>
         <span>先调准，再练稳。</span>
-        <span>试用版 V0.4.0</span>
+        <span>试用版 V0.4.1</span>
       </footer>
     </div>
   );
