@@ -7,6 +7,9 @@ const midi: Record<string, number> = {
   "6": 71,
   "1+": 74,
   "2+": 76,
+  "3+": 78,
+  "5+": 81,
+  "6+": 83,
   "5-": 57,
   "6-": 59,
 };
@@ -129,6 +132,31 @@ SCORES[7].tempo = [
   { beat: 12, ratio: 0.7, ramp: false },
 ];
 SCORES[8].order = [0, 1, 0, 1, 2, 3];
+// Manually transcribed from the supplied page; source credit preserved, teacher review pending.
+const dailyRhythm = make(
+  "daily-rhythm-2",
+  "日常节奏小练习2",
+  "附点节奏与跨音区练习 · 胡冰青编配",
+  [
+    "0 0",
+    "2+:0.75 3+:0.25 5+:0.5 6+:0.5",
+    "1+:0.75 2+:0.25 3+:0.5 5+:0.5",
+    "6:0.75 1+:0.25 2+:0.5 3+:0.5",
+    "5:0.75 6:0.25 1+:0.5 2+:0.5",
+    "3:0.75 5:0.25 6:0.5 1+:0.5",
+    "2:0.75 3:0.25 5:0.5 6:0.5",
+    "1:0.75 2:0.25 3:0.5 5:0.5",
+    "6-:0.75 1:0.25 2:0.5 3:0.5",
+    "5-:0.75 6-:0.25 1:0.5 2:0.5",
+  ],
+  70,
+);
+dailyRhythm.meter = [2, 4];
+dailyRhythm.startBpm = 70;
+dailyRhythm.version = "0.3.9-transcription";
+dailyRhythm.subtitle = "胡冰青编配 · 按提供图片录入 · 待老师核对";
+SCORES.push(dailyRhythm);
+
 export function notation(m: number | null) {
   if (m === null) return { digit: "0", octave: 0 };
   const degrees: Record<number, string> = {

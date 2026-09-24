@@ -21,8 +21,8 @@ function perfect(s = score, bpm = 60) {
   e.tick(timeline.duration + 1);
   return e;
 }
-test("10 original units are valid, bar-aligned and explicitly unreviewed", () => {
-  assert.equal(SCORES.length, 10);
+test("10 original units and one supplied transcription are valid, bar-aligned and explicitly unreviewed", () => {
+  assert.equal(SCORES.length, 11);
   for (const s of SCORES) {
     assert.deepEqual(validateScore(s), [], s.title);
     assert.equal(s.review.status, "draft");
@@ -243,4 +243,44 @@ test("three matching earlier notes detect a rewind, not a single error", () => {
 });
 test("a score-written repeat is not mistaken for rewinding", () => {
   assert.equal(perfect(SCORES[8]).lost, false);
+});
+
+test("supplied rhythm sheet preserves rests, dotted rhythm and octave descent", () => {
+  const s = SCORES.find((s) => s.id === "daily-rhythm-2");
+  assert.deepEqual(s.meter, [2, 4]);
+  assert.equal(s.bpm, 70);
+  assert.equal(s.startBpm, 70);
+  assert.deepEqual(
+    s.bars[0].notes.map((n) => [n.midi, n.duration]),
+    [
+      [null, 1],
+      [null, 1],
+    ],
+  );
+  const expected = [
+    [76, 78, 81, 83],
+    [74, 76, 78, 81],
+    [71, 74, 76, 78],
+    [69, 71, 74, 76],
+    [66, 69, 71, 74],
+    [64, 66, 69, 71],
+    [62, 64, 66, 69],
+    [59, 62, 64, 66],
+    [57, 59, 62, 64],
+  ];
+  s.bars.slice(1).forEach((b, i) => {
+    assert.deepEqual(
+      b.notes.map((n) => n.midi),
+      expected[i],
+    );
+    assert.deepEqual(
+      b.notes.map((n) => n.duration),
+      [0.75, 0.25, 0.5, 0.5],
+    );
+  });
+  const t = makeTimeline(s, 70);
+  assert.equal(t.beats.length, 20);
+  assert.ok(Math.abs(t.countIn - 120 / 70) < 1e-9);
+  assert.equal(t.events.filter((n) => n.midi !== null).length, 36);
+  assert.ok(Math.abs(t.events[2].time - 120 / 70) < 1e-9);
 });

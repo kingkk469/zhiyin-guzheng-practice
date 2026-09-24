@@ -87,7 +87,7 @@ export default function GuzhengApp() {
     [message, setMessage] = useState("");
   const metronome = useRef(new Metronome());
   const [clickTone, setClickTone] = useState<ClickTone>("wood");
-  const [clickVolume, setClickVolume] = useState(0.5);
+  const [clickVolume, setClickVolume] = useState(0.7);
   const [headphones, setHeadphones] = useState(false);
   const fineInput = useRef(new FineTuningInput());
   const [tuningHint, setTuningHint] = useState(false);
@@ -1956,7 +1956,7 @@ export default function GuzhengApp() {
       <footer className="v-footer">
         <span>知音 · 数字生命 King</span>
         <span>先调准，再练稳。</span>
-        <span>试用版 V0.3.8</span>
+        <span>试用版 V0.3.9</span>
       </footer>
     </div>
   );

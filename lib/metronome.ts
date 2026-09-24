@@ -42,7 +42,7 @@ export class Metronome {
         const osc = ctx.createOscillator(),
           gain = ctx.createGain();
         const when = Math.max(at, ctx.currentTime),
-          length = tone === "soft" ? 0.065 : 0.035;
+          length = tone === "soft" ? 0.1 : 0.075;
         osc.type =
           tone === "wood" ? "triangle" : tone === "digital" ? "square" : "sine";
         osc.frequency.setValueAtTime(
@@ -52,7 +52,7 @@ export class Metronome {
         );
         gain.gain.setValueAtTime(0, when);
         gain.gain.linearRampToValueAtTime(
-          volume * (beat.accent ? 0.24 : 0.16),
+          Math.max(0, Math.min(1, volume)) * (beat.accent ? 0.72 : 0.48),
           when + 0.002,
         );
         gain.gain.exponentialRampToValueAtTime(0.0001, when + length);

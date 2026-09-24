@@ -61,6 +61,7 @@ export default function NumberedSheet({
             1 = D　{score.meter.join("/")}　·　完整简谱
           </span>
           <h2>{score.title}</h2>
+          <small>{score.subtitle}</small>
         </div>
         <div className="v-tempo">
           ♩ = {timeline.bpm}
