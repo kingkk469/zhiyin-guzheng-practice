@@ -48,6 +48,8 @@ try {
  assert.equal(await page.getByLabel('基础速度',{exact:true}).inputValue(),'70');
  assert.equal(await page.locator('.score-measure').count(),10);
  assert.equal(await page.locator('.score-symbol').count(),38);
+ const beams=await page.locator('.score-measure[data-measure="2"] .score-beam').evaluateAll(nodes=>nodes.map(n=>[+n.dataset.start,+n.dataset.end,+n.dataset.level]));
+ assert.deepEqual(beams,[[0,.75,0],[1,1.5,0],[.75,.75,1]]);
  await page.locator('.numbered-sheet').screenshot({path:'outputs/daily-rhythm-2.png'});
  await page.getByLabel('无琴体验 · 模拟演奏').check();
  await page.getByRole('button',{name:'▶ 开始练习',exact:true}).click();

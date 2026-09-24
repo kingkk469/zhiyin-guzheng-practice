@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import ScorePlayhead from "./ScorePlayhead";
-import { notation } from "../lib/scores";
+import { notation, beatBeams } from "../lib/scores";
 import type {
   Score,
   Timeline,
@@ -140,9 +140,6 @@ export default function NumberedSheet({
                             ? "#929384"
                             : "#202722";
                     const dotted = [0.375, 0.75, 1.5, 3].includes(n.duration);
-                    const base = dotted ? n.duration / 1.5 : n.duration;
-                    const lines =
-                      base < 1 ? Math.min(3, Math.round(-Math.log2(base))) : 0;
                     const mark = ev
                       ? ev.kind === "uncertain"
                         ? "?"
@@ -176,17 +173,6 @@ export default function NumberedSheet({
                             cx={nx}
                             cy={p.octave > 0 ? y + 39 - o * 7 : y + 99 + o * 7}
                             r="2"
-                          />
-                        ))}
-                        {Array.from({ length: lines }, (_, l) => (
-                          <line
-                            key={l}
-                            x1={nx - 9}
-                            x2={nx + 9}
-                            y1={y + 83 + l * 5}
-                            y2={y + 83 + l * 5}
-                            stroke={color}
-                            strokeWidth="1.8"
                           />
                         ))}
                         {dotted && n.duration < 2 && (
@@ -233,6 +219,23 @@ export default function NumberedSheet({
                       </g>
                     );
                   })}
+                {beatBeams(
+                  timeline.events.filter((n) => n.measure === bar.measure),
+                ).map((beam, i) => (
+                  <line
+                    key={`beam-${i}`}
+                    className="score-beam"
+                    data-level={beam.level}
+                    data-start={beam.start}
+                    data-end={beam.end}
+                    x1={x + 12 + beam.start * beatWidth - 9}
+                    x2={x + 12 + beam.end * beatWidth + 9}
+                    y1={y + 83 + beam.level * 5}
+                    y2={y + 83 + beam.level * 5}
+                    stroke="#202722"
+                    strokeWidth="1.8"
+                  />
+                ))}
                 {Array.from({ length: score.meter[0] }, (_, b) => (
                   <path
                     key={b}

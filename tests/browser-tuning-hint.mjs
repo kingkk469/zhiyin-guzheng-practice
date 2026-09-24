@@ -43,7 +43,7 @@ try {
   await page.getByRole("button", { name: "逐弦精调", exact: true }).click();
   await page.getByRole("button", { name: "直接去练习 →", exact: true }).click();
   await page.getByLabel("基础速度", { exact: true }).fill("120");
-  await page.getByLabel("我已用耳机隔离节拍声").check();
+  await page.getByRole("radio", { name: /测音准模式/ }).check();
   await page.getByRole("button", { name: "▶ 开始练习", exact: true }).click();
   await page.waitForFunction(() =>
     document.querySelector(".v-live")?.textContent.trim().startsWith("预备拍 ·"),

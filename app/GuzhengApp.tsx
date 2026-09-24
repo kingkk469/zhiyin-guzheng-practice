@@ -32,7 +32,7 @@ type Run = {
   score: Score;
   stage: Stage;
   lastFrame: number;
-  speaker: boolean;
+  follow: boolean;
 };
 const RECORDS = "zhiyin-v2-records",
   CUSTOM = "zhiyin-v2-scores",
@@ -88,7 +88,9 @@ export default function GuzhengApp() {
   const metronome = useRef(new Metronome());
   const [clickTone, setClickTone] = useState<ClickTone>("wood");
   const [clickVolume, setClickVolume] = useState(0.7);
-  const [headphones, setHeadphones] = useState(false);
+  const [practiceMode, setPracticeMode] = useState<"follow" | "assessment">(
+    "follow",
+  );
   const fineInput = useRef(new FineTuningInput());
   const [tuningHint, setTuningHint] = useState(false);
   const [tuningHelp, setTuningHelp] = useState(false);
@@ -319,10 +321,11 @@ export default function GuzhengApp() {
     setStage("ready");
     if (completed) r.engine.tick(r.engine.timeline.duration + 1);
     const result = r.engine.report(r.score, completed, r.demo);
-    if (r.speaker) {
-      result.reasons.push("本次使用外放节拍器，未隔离节拍声，不生成评分。");
+    result.mode = r.follow ? "follow" : "assessment";
+    if (r.follow) {
+      result.reasons.push("本次为跟练模式，未采集琴声，不生成评分。");
       result.comment =
-        "已记录本次外放跟拍练习。使用耳机隔离节拍声后，可再检查音符和节奏。";
+        "已记录本次跟练。切换测音准模式并戴耳机，可检查音符和节奏。";
       result.suggestions = [];
     }
     setReport(result);
@@ -367,7 +370,14 @@ export default function GuzhengApp() {
     setMessage("");
     try {
       setTuningHint(false);
-      if (!demo) {
+      const follow = !demo && practiceMode === "follow";
+      if (follow) {
+        audio.current?.close();
+        setMic(false);
+        environmentOK.current = false;
+        checkingUntil.current = 0;
+      }
+      if (!demo && !follow) {
         if (!mic || !environmentOK.current) {
           if (!(await prepare())) return;
           const deadline = performance.now() + 6000;
@@ -384,20 +394,24 @@ export default function GuzhengApp() {
         if (!audio.current!.startRecording())
           setMessage("此浏览器暂不能录音回听，实时练习仍可进行。");
       }
-      await metronome.current.open(demo ? undefined : audio.current!.context!);
+      await metronome.current.open(
+        demo || follow ? undefined : audio.current!.context!,
+      );
       const t = makeTimeline(score, bpm, from, to),
-        now = (demo ? performance.now() / 1000 : audio.current!.time) + 0.12;
+        now =
+          (demo || follow ? performance.now() / 1000 : audio.current!.time) +
+          0.12;
       const engine = new PracticeEngine(t, {
         pitchCents: 35,
         timingFraction: 0.15,
         minimumTimingMs: 65,
         latencyMs: latency,
       });
-      if (!demo && !headphones) engine.untrusted(-t.countIn, t.duration + 1);
+      if (follow) engine.untrusted(-t.countIn, t.duration + 1);
       metronome.current.start(
         t,
         score.meter[0],
-        demo
+        demo || follow
           ? metronome.current.context!.currentTime + 0.12 + t.countIn
           : now + t.countIn,
         clickTone,
@@ -412,7 +426,7 @@ export default function GuzhengApp() {
         score,
         stage: "countdown",
         lastFrame: now,
-        speaker: !demo && !headphones,
+        follow,
       };
       setStage("countdown");
       setElapsed(-t.countIn);
@@ -435,6 +449,7 @@ export default function GuzhengApp() {
     if (!r) return;
     busy.current = true;
     const partial = r.engine.report(r.score, false, r.demo);
+    partial.mode = r.follow ? "follow" : "assessment";
     const blob = await audio.current?.stopRecording();
     if (blob?.size) {
       recordedBlob.current = blob;
@@ -503,7 +518,9 @@ export default function GuzhengApp() {
     const r = run.current;
     if (!r || r.stage === "paused") return null;
     return (
-      (r.demo ? performance.now() / 1000 : (audio.current?.time ?? 0)) - r.start
+      (r.demo || r.follow
+        ? performance.now() / 1000
+        : (audio.current?.time ?? 0)) - r.start
     );
   }, []);
   useEffect(() => {
@@ -532,16 +549,17 @@ export default function GuzhengApp() {
       }
       const r = run.current;
       if (!r || r.stage === "paused") return;
-      const now = r.demo
-          ? performance.now() / 1000
-          : (audio.current?.time ?? 0),
+      const now =
+          r.demo || r.follow
+            ? performance.now() / 1000
+            : (audio.current?.time ?? 0),
         t = now - r.start;
       setElapsed(t);
       if (t >= 0 && r.stage === "countdown") {
         r.stage = "playing";
         setStage("playing");
       }
-      if (!r.demo && now - r.lastFrame > 0.4) {
+      if (!r.demo && !r.follow && now - r.lastFrame > 0.4) {
         pauseRef.current("采音已中断，已暂停。请重新检查麦克风。");
         return;
       }
@@ -559,7 +577,7 @@ export default function GuzhengApp() {
         }
       }
       r.engine.tick(t);
-      if (r.engine.lost && !r.speaker) {
+      if (r.engine.lost && !r.follow) {
         pauseRef.current(
           r.engine.lossReason === "repeat"
             ? "检测到回头重弹，已暂停。请选择恢复小节。"
@@ -678,7 +696,7 @@ export default function GuzhengApp() {
         }
       }
       if (!r || r.demo || !["playing", "countdown"].includes(r.stage)) return;
-      if (r.speaker) return;
+      if (r.follow) return;
       const time = f.time - r.start;
       if (time < -0.44) return;
       if (
@@ -1238,11 +1256,47 @@ export default function GuzhengApp() {
                 报告与真实记录分开
               </div>
             )}
+            <fieldset
+              className="practice-mode-picker"
+              disabled={active || stage === "paused" || opening}
+            >
+              <legend>选择练习模式</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="practice-mode"
+                  value="follow"
+                  checked={practiceMode === "follow"}
+                  onChange={() => {
+                    setPracticeMode("follow");
+                    setDemo(false);
+                  }}
+                />
+                <b>跟练模式</b>
+                <span>动态曲谱＋节拍器，不录音、不评分</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="practice-mode"
+                  value="assessment"
+                  checked={practiceMode === "assessment"}
+                  onChange={() => {
+                    setPracticeMode("assessment");
+                    setDemo(false);
+                  }}
+                />
+                <b>测音准模式</b>
+                <span>戴耳机，检测音符与节奏，结束后查看评分</span>
+              </label>
+            </fieldset>
             <div className="v-practice-layout">
               <Sheet
                 score={score}
                 timeline={liveEngine?.timeline ?? timeline}
-                engine={liveEngine}
+                engine={
+                  practiceMode === "follow" && !demo ? undefined : liveEngine
+                }
                 elapsed={elapsed}
                 clock={readPlayClock}
               />
@@ -1365,7 +1419,7 @@ export default function GuzhengApp() {
                     无琴体验 · 模拟演奏
                   </label>
                 )}
-                {!demo && !completedTuning && (
+                {!demo && practiceMode === "assessment" && !completedTuning && (
                   <button
                     className="text-button"
                     disabled={active || stage === "paused"}
@@ -1405,18 +1459,10 @@ export default function GuzhengApp() {
                       onChange={(e) => setClickVolume(Number(e.target.value))}
                     />
                   </label>
-                  <label className="v-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={headphones}
-                      onChange={(e) => setHeadphones(e.target.checked)}
-                    />
-                    我已用耳机隔离节拍声
-                  </label>
                   <small>
-                    {headphones
-                      ? "请确保麦克风收不到耳机漏音；建议有线耳机，设备时差仍需实测。"
-                      : "外放可全程跟拍；节拍声会干扰采音，本次不判错、不生成评分。需要音符反馈时请使用耳机。"}
+                    {practiceMode === "assessment"
+                      ? "请先戴好耳机，让节拍声从耳机输出；手机麦克风采集琴声。建议有线耳机，避免漏音；录音仅保存在本机。"
+                      : "直接跟着光标和节拍练习，不需要开启麦克风。"}
                   </small>
                 </fieldset>
                 <details>
@@ -1497,7 +1543,9 @@ export default function GuzhengApp() {
                 {stage === "countdown"
                   ? `预备拍 · ${Math.max(1, Math.ceil(-elapsed / (timeline.countIn / score.meter[0])))}`
                   : stage === "playing"
-                    ? `正在听 · ${demo ? "模拟" : frame?.midi ? noteName(frame.midi) : "等待琴声"}`
+                    ? practiceMode === "follow" && !demo
+                      ? "正在跟拍 · 不采音、不评分"
+                      : `正在听 · ${demo ? "模拟" : frame?.midi ? noteName(frame.midi) : "等待琴声"}`
                     : stage === "paused"
                       ? "已暂停"
                       : completedTuning
@@ -1540,7 +1588,29 @@ export default function GuzhengApp() {
             </div>
           </>
         )}
-        {page === "report" && report && (
+        {page === "report" && report?.mode === "follow" && (
+          <section className="v-sheet">
+            <h1>{report.completed ? "跟练完成" : "已保存本段跟练"}</h1>
+            <h2>{report.title}</h2>
+            <p>
+              第 {report.from}—{report.to} 小节 · {report.bpm} 拍/分钟
+            </p>
+            <p>本次未采集琴声，不评价音准或节奏，也不生成分数。</p>
+            <button className="primary-button" onClick={() => select(score)}>
+              再练一次 →
+            </button>
+            <button
+              className="secondary-button"
+              onClick={() => {
+                setPracticeMode("assessment");
+                select(score);
+              }}
+            >
+              戴耳机，测音准 →
+            </button>
+          </section>
+        )}
+        {page === "report" && report && report.mode !== "follow" && (
           <>
             <div className="v-section-title">
               <div>
@@ -1789,7 +1859,11 @@ export default function GuzhengApp() {
                   <div>
                     <small>
                       {date(r.createdAt)} ·{" "}
-                      {r.demo ? "模拟演示" : "真实采音 · 试验评分"}
+                      {r.demo
+                        ? "模拟演示"
+                        : r.mode === "follow"
+                          ? "跟练记录 · 未采音"
+                          : "测音准 · 试验评分"}
                     </small>
                     <h3>{r.title}</h3>
                     <p>
@@ -1956,7 +2030,7 @@ export default function GuzhengApp() {
       <footer className="v-footer">
         <span>知音 · 数字生命 King</span>
         <span>先调准，再练稳。</span>
-        <span>试用版 V0.3.9</span>
+        <span>试用版 V0.4.0</span>
       </footer>
     </div>
   );

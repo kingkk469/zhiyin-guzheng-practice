@@ -8,7 +8,7 @@ import {
   validateScore,
   secondsAt,
 } from "../lib/practice-core.ts";
-import { SCORES } from "../lib/scores.ts";
+import { SCORES, beatBeams } from "../lib/scores.ts";
 const score = SCORES[0];
 function perfect(s = score, bpm = 60) {
   const timeline = makeTimeline(s, bpm),
@@ -283,4 +283,30 @@ test("supplied rhythm sheet preserves rests, dotted rhythm and octave descent", 
   assert.ok(Math.abs(t.countIn - 120 / 70) < 1e-9);
   assert.equal(t.events.filter((n) => n.midi !== null).length, 36);
   assert.ok(Math.abs(t.events[2].time - 120 / 70) < 1e-9);
+});
+
+test("dotted eighth and sixteenth share a beat beam, next beat is separate", () => {
+  const s = SCORES.find((s) => s.id === "daily-rhythm-2");
+  assert.deepEqual(beatBeams(s.bars[1].notes), [
+    { start: 0, end: 0.75, level: 0 },
+    { start: 1, end: 1.5, level: 0 },
+    { start: 0.75, end: 0.75, level: 1 },
+  ]);
+  const notes = [0, 0.25, 0.5, 0.75, 1].map((beat, i) => ({
+    id: String(i),
+    beat,
+    duration: 0.25,
+    midi: 62,
+    pitch: true,
+    rhythm: true,
+  }));
+  assert.deepEqual(
+    beatBeams(notes).filter((b) => b.level === 1),
+    [
+      { start: 0, end: 0.75, level: 1 },
+      { start: 1, end: 1, level: 1 },
+    ],
+  );
+  notes[1].midi = null;
+  assert.ok(!beatBeams(notes).some((b) => b.start === 0 && b.end >= 0.5));
 });

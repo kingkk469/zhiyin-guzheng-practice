@@ -168,3 +168,36 @@ export function notation(m: number | null) {
   };
   return { digit: degrees[m % 12] ?? "♯", octave: Math.floor((m - 62) / 12) };
 }
+
+/** Join reduction lines within a beat; rests and gaps break a beam. */
+export function beatBeams(notes: Bar["notes"]) {
+  const segments: { start: number; end: number; level: number }[] = [];
+  const ordered = [...notes].sort((a, b) => a.beat - b.beat);
+  for (let level = 0; level < 3; level++) {
+    let segment: { start: number; end: number; level: number } | null = null;
+    let previousEnd = -1;
+    for (const n of ordered) {
+      const dotted = [0.375, 0.75, 1.5, 3].includes(n.duration);
+      const base = dotted ? n.duration / 1.5 : n.duration;
+      const lines = base < 1 ? Math.min(3, Math.round(-Math.log2(base))) : 0;
+      if (lines <= level || n.midi === null) {
+        segment = null;
+        if (n.midi === null && lines > level)
+          segments.push({ start: n.beat, end: n.beat, level });
+        continue;
+      }
+      if (
+        segment &&
+        Math.floor(segment.start + 1e-8) === Math.floor(n.beat + 1e-8) &&
+        Math.abs(previousEnd - n.beat) < 1e-8
+      )
+        segment.end = n.beat;
+      else {
+        segment = { start: n.beat, end: n.beat, level };
+        segments.push(segment);
+      }
+      previousEnd = n.beat + n.duration;
+    }
+  }
+  return segments;
+}

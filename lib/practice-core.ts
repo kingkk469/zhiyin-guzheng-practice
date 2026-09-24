@@ -85,6 +85,7 @@ export type Capture = {
   confidence: number;
 };
 export type Report = {
+  mode?: "follow" | "assessment";
   id: string;
   createdAt: string;
   scoreId: string;

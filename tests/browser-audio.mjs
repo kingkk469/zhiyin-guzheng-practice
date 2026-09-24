@@ -77,7 +77,7 @@ try {
     .getByRole("button", { name: "校音完成，去练习 →", exact: true })
     .click();
   await page.getByLabel("基础速度", { exact: true }).fill("120");
-  await page.getByLabel("我已用耳机隔离节拍声").check();
+  await page.getByRole("radio", { name: /测音准模式/ }).check();
   await page.getByRole("button", { name: "▶ 开始练习", exact: true }).click();
   await page.evaluate(() =>
     window.__syntheticInput.play(
