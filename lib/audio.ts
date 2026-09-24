@@ -23,17 +23,42 @@ export class LocalAudio {
   detector = new InstrumentPitchDetector();
   assessment: Worker | null = null;
   assessmentPending = 0;
+  assessmentReady = false;
+  cancelAssessmentLoad: (() => void) | null = null;
   setAssessment(active: boolean) {
+    this.cancelAssessmentLoad?.();
+    this.cancelAssessmentLoad = null;
     this.assessment?.terminate();
     this.assessment = null;
     this.assessmentPending = 0;
+    this.assessmentReady = false;
     if (!active) return;
     const w = new Worker(
-      `${location.pathname.replace(/\/$/, "")}/review-assets/assessment-worker.js?v=0.7.0`,
+      `${location.pathname.replace(/\/$/, "")}/review-assets/assessment-worker.js?v=0.7.0-ready1`,
     );
     this.assessment = w;
+    let ready: () => void = () => {};
+    const loaded = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.setAssessment(false);
+      }, 30000);
+      ready = () => {
+        clearTimeout(timer);
+        this.cancelAssessmentLoad = null;
+        this.assessmentReady = true;
+        resolve();
+      };
+      this.cancelAssessmentLoad = () => {
+        clearTimeout(timer);
+        reject(Error("识别器加载未完成，请联网后重试。"));
+      };
+    });
     w.onmessage = ({ data }) => {
       if (this.assessment !== w || this.closed) return;
+      if (data.ready) {
+        ready();
+        return;
+      }
       this.assessmentPending = Math.max(0, this.assessmentPending - 1);
       if (data.error || data.gap || this.time - data.through > 0.35) {
         this.setAssessment(false);
@@ -57,6 +82,7 @@ export class LocalAudio {
         this.onInterrupted();
       }
     };
+    return loaded;
   }
   inputSettings: MediaTrackSettings | null = null;
   async open() {
@@ -101,7 +127,7 @@ export class LocalAudio {
           peak: data.peak,
           attack: data.attack,
         });
-        if (this.assessment) {
+        if (this.assessment && this.assessmentReady) {
           if (!data.chunk || ++this.assessmentPending > 10) {
             this.setAssessment(false);
             this.onInterrupted();

@@ -403,7 +403,7 @@ export default function GuzhengApp() {
           }
         }
         await audio.current!.open();
-        audio.current!.setAssessment(true);
+        await audio.current!.setAssessment(true);
         if (!audio.current!.startRecording())
           setMessage("此浏览器暂不能录音回听，实时练习仍可进行。");
       }

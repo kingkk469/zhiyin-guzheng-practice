@@ -7,6 +7,10 @@ const browser = await chromium.launch({ channel: "msedge", headless: true });
 const page = await browser.newPage({ viewport: { width: 1365, height: 1000 } }),
   errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
+await page.route("**/assessment-worker.js*",async route=>{
+  await new Promise(resolve=>setTimeout(resolve,1000));
+  await route.continue();
+});
 await page.addInitScript(() => {
   window.__clicks = [];
   const originalSet = AudioParam.prototype.setValueAtTime;
