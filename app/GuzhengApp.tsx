@@ -327,6 +327,7 @@ export default function GuzhengApp() {
     if (!r || busy.current) return;
     busy.current = true;
     metronome.current.stop();
+    audio.current?.setAssessment(false);
     r.stage = "paused";
     setStage("ready");
     if (completed) r.engine.tick(r.engine.timeline.duration + 1);
@@ -364,6 +365,7 @@ export default function GuzhengApp() {
     const r = run.current;
     if (!r || r.stage === "paused") return;
     metronome.current.stop();
+    audio.current?.setAssessment(false);
     r.stage = "paused";
     if (audio.current?.recorder?.state === "recording")
       audio.current.recorder.pause();
@@ -401,6 +403,7 @@ export default function GuzhengApp() {
           }
         }
         await audio.current!.open();
+        audio.current!.setAssessment(true);
         if (!audio.current!.startRecording())
           setMessage("此浏览器暂不能录音回听，实时练习仍可进行。");
       }
@@ -633,7 +636,7 @@ export default function GuzhengApp() {
     audio.current.onFrame = (f: Frame) => {
       const r = run.current;
       if (r) r.lastFrame = f.time;
-      if (frameCounter.current++ % 5 === 0) setFrame(f);
+      if (f.assessment || (frameCounter.current++ % 5 === 0 && !r)) setFrame(f);
       if (checkingUntil.current) {
         noise.current.push(f.rms);
         if (f.time >= checkingUntil.current) {
@@ -706,6 +709,11 @@ export default function GuzhengApp() {
       }
       if (!r || r.demo || !["playing", "countdown"].includes(r.stage)) return;
       if (r.follow) return;
+      if (!f.assessment) {
+        if (f.peak > 0.98)
+          r.engine.untrusted(f.time - r.start - 0.1, f.time - r.start + 0.1);
+        return;
+      }
       const time = f.time - r.start;
       if (time < -0.44) return;
       if (
@@ -1303,6 +1311,11 @@ export default function GuzhengApp() {
                 <span>戴耳机，检测音符与节奏，结束后查看评分</span>
               </label>
             </fieldset>
+            {practiceMode === "assessment" && (
+              <p>
+                新起音判音试用：适用于D调空弦单音拨奏；撮、摇指及快速连音请用跟练模式。不确定的起音标为未判断，真琴效果仍需复核。
+              </p>
+            )}
             <div className="v-practice-layout">
               <Sheet
                 score={score}

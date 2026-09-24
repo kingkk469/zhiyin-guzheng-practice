@@ -37,6 +37,16 @@ await build({
   minify: true,
   legalComments: "linked",
 });
+await build({
+  entryPoints: ["lib/assessment-worker.mjs"],
+  outfile: dest + "/assessment-worker.js",
+  bundle: true,
+  format: "iife",
+  platform: "browser",
+  minify: true,
+  legalComments: "linked",
+});
+await copyFile("node_modules/fft.js/README.md", dest + "/README-fft.txt");
 
 await copyFile(
   "node_modules/@spotify/basic-pitch/model/group1-shard1of1.bin",

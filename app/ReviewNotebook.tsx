@@ -13,6 +13,7 @@ import {
   validReviewRun,
 } from "../lib/review-comparison.mjs";
 type Result = {
+  residual?: { events: { pitchMidi: number | null }[] };
   runId?: string;
   notes: { pitchMidi: number }[];
   review: {
@@ -58,7 +59,7 @@ export default function ReviewNotebook({
                 {
                   id: result.runId,
                   createdAt: new Date().toISOString(),
-                  appVersion: "0.6.0",
+                  appVersion: "0.7.0",
                   result,
                 },
               ],
@@ -134,7 +135,7 @@ export default function ReviewNotebook({
                         {
                           id: result.runId,
                           createdAt: new Date().toISOString(),
-                          appVersion: "0.6.0",
+                          appVersion: "0.7.0",
                           result,
                         },
                       ]
@@ -261,6 +262,21 @@ export default function ReviewNotebook({
             <div className="review-comparison">
               <p>原始候选：{summarize(result, false)}</p>
               <p>整理候选：{summarize(result, true)}</p>
+              {result.residual && (
+                <p>
+                  新起音对照：
+                  {(() => {
+                    const events = result.residual.events,
+                      c = compareSequence(
+                        expected,
+                        events.map((n) =>
+                          n.pitchMidi === null ? -1 : Math.round(n.pitchMidi),
+                        ),
+                      );
+                    return `匹配${c.matched} · 多检${c.extra} · 漏检${c.missed} · 不同或未判断${c.wrong}（含${events.filter((n) => n.pitchMidi === null).length}个未判断起音）`;
+                  })()}
+                </p>
+              )}
               <small>
                 仅比较音符顺序，不评节奏或音分。重复音可能有多种对应方式，这些差异不是演奏评分。
               </small>

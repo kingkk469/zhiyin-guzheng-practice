@@ -47,6 +47,7 @@ class ZhengCapture extends AudioWorkletProcessor {
     this.slow = this.slow * 0.93 + this.fast * 0.07;
     this.clipped = Math.max(this.clipped, peak);
     if (this.hop >= sampleRate * 0.02) {
+      const chunkLength = this.hop;
       this.hop = 0;
       const frame = new Float32Array(this.buffer.length);
       for (let i = 0; i < frame.length; i++)
@@ -56,6 +57,7 @@ class ZhengCapture extends AudioWorkletProcessor {
           ? this.pending
           : null;
       if (attack !== null) this.pending = null;
+      const chunk = frame.slice(frame.length - chunkLength);
       this.port.postMessage(
         {
           frame,
@@ -64,8 +66,11 @@ class ZhengCapture extends AudioWorkletProcessor {
           rms: this.fast,
           peak: this.clipped,
           attack,
+          chunk,
+          startTime:
+            currentTime + input.length / sampleRate - chunkLength / sampleRate,
         },
-        [frame.buffer],
+        [frame.buffer, chunk.buffer],
       );
       this.clipped = 0;
     }

@@ -92,10 +92,17 @@ try {
       `missing ${pitch}`,
     );
   assert.equal(result.mode, "experimental-transcription");
+  assert.equal(result.residual.ruleVersion, "residual-offline-1");
+  assert.deepEqual(
+    result.residual.events
+      .filter((n) => n.pitchMidi !== null)
+      .map((n) => Math.round(n.pitchMidi)),
+    [62, 66, 69],
+  );
   assert.equal(result.review.ruleVersion, "guzheng-candidates-1");
   assert.equal(result.review.candidates.length, result.notes.length);
   assert.equal(
-    await page.locator(".review-notes button").count(),
+    await page.locator(".review-notes:not(.residual-notes) button").count(),
     result.review.retainedCount,
   );
   for (const pitch of [62, 66, 69])
@@ -106,7 +113,7 @@ try {
     );
   await page.getByRole("checkbox", { name: /展开全部原始候选/ }).check();
   assert.equal(
-    await page.locator(".review-notes button").count(),
+    await page.locator(".review-notes:not(.residual-notes) button").count(),
     result.notes.length,
   );
   for (const n of result.review.candidates) {
@@ -121,7 +128,10 @@ try {
   }
   assert.ok(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth));
   assert.equal(uploads.length, 0);
-  await page.locator(".review-notes button").first().click();
+  await page
+    .locator(".review-notes:not(.residual-notes) button")
+    .first()
+    .click();
   assert.ok(await dialog.locator("audio").evaluate((a) => !a.paused));
   await dialog.screenshot({ path: "outputs/review-mobile.png" });
   // Original bytes are downloadable before/after reload, not the 22050Hz model input.
@@ -163,13 +173,11 @@ try {
   );
   assert.deepEqual(await downloadNamed("下载原始录音"), wav());
   // Restore adds a new sample instead of replacing a newer local correction.
-  await page
-    .getByLabel("恢复完整备份")
-    .setInputFiles({
-      name: "sample.json",
-      mimeType: "application/json",
-      buffer: backup,
-    });
+  await page.getByLabel("恢复完整备份").setInputFiles({
+    name: "sample.json",
+    mimeType: "application/json",
+    buffer: backup,
+  });
   await page.getByText("打开已保存样本（2）", { exact: true }).waitFor();
   await page.getByText("打开已保存样本（2）", { exact: true }).click();
   await page
@@ -212,8 +220,10 @@ try {
   );
   await page.getByLabel("实际弹奏的音符序列").scrollIntoViewIfNeeded();
   await dialog.screenshot({ path: "outputs/review-notebook-mobile.png" });
-  await page.getByText("打开已保存样本（2）", {exact:true}).click();
-  await page.getByRole("button", {name:"依次复测所有已纠正样本",exact:true}).click();
+  await page.getByText("打开已保存样本（2）", { exact: true }).click();
+  await page
+    .getByRole("button", { name: "依次复测所有已纠正样本", exact: true })
+    .click();
   await page.getByRole("button", { name: "取消处理", exact: true }).click();
   await page.getByRole("status").filter({ hasText: "已取消" }).waitFor();
   await page.getByLabel("选择手机录音").setInputFiles({
@@ -230,7 +240,10 @@ try {
   await page.waitForFunction(
     () => !document.querySelector(".review-actions .primary-button")?.disabled,
   );
-  assert.equal(await page.locator(".review-notes button").count(), 0);
+  assert.equal(
+    await page.locator(".review-notes:not(.residual-notes) button").count(),
+    0,
+  );
   // Real MediaRecorder over a synthetic browser stream; no physical mic.
   await page.evaluate(() => {
     navigator.mediaDevices.getUserMedia = async () => {

@@ -19,6 +19,14 @@ type ReviewNote = HeardNote & {
   reasons: string[];
 };
 type Result = {
+  residual?: {
+    events: {
+      startTimeSeconds: number;
+      pitchMidi: number | null;
+      status: string;
+      reasons: string[];
+    }[];
+  };
   runId?: string;
   notes: HeardNote[];
   backend: string;
@@ -267,7 +275,7 @@ function ReviewSession({
         location.pathname.replace(/\/$/, "") + "/review-assets/",
         location.origin,
       ).href;
-      const w = new Worker(assets + "worker.js?v=0.5.1");
+      const w = new Worker(assets + "worker.js?v=0.7.0");
       worker.current = w;
       return await new Promise<boolean>((resolve) => {
         settle.current = resolve;
@@ -307,7 +315,7 @@ function ReviewSession({
                           {
                             id: completed.runId,
                             createdAt: new Date().toISOString(),
-                            appVersion: "0.6.0",
+                            appVersion: "0.7.0",
                             result: completed,
                           },
                         ],
@@ -526,6 +534,38 @@ function ReviewSession({
               ))}
           </div>
         </>
+      )}
+      {result?.residual && (
+        <section aria-label="新起音对照">
+          <h3>新起音判音 · 实验对照</h3>
+          <small>
+            只尝试D调21根空弦的单弦拨奏。暂不支持撮、摇指、快速连音；不用于评分，结果需回听确认。
+          </small>
+          <div className="review-notes residual-notes">
+            {result.residual.events.map((n, i) => (
+              <button
+                key={i}
+                onClick={() => {
+                  if (player.current) {
+                    player.current.currentTime = Math.max(
+                      0,
+                      n.startTimeSeconds - 0.12,
+                    );
+                    void player.current
+                      .play()
+                      .catch(() => setMessage("请点击播放器回听。"));
+                  }
+                }}
+              >
+                <strong>
+                  {n.pitchMidi === null ? "未判断" : noteName(n.pitchMidi)}
+                </strong>
+                <span>{n.startTimeSeconds.toFixed(2)} 秒</span>
+                <small>{n.reasons.join("；")}</small>
+              </button>
+            ))}
+          </div>
+        </section>
       )}
       <ReviewNotebook
         key={sample?.id ?? "library"}

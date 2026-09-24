@@ -1,6 +1,7 @@
 import { hzToMidi } from "./music-core.mjs";
 import { InstrumentPitchDetector } from "./pitch-detector.mjs";
 export type Frame = {
+  assessment?: boolean;
   time: number;
   midi: number | null;
   confidence: number;
@@ -20,6 +21,43 @@ export class LocalAudio {
   onInterrupted: () => void = () => {};
   closed = false;
   detector = new InstrumentPitchDetector();
+  assessment: Worker | null = null;
+  assessmentPending = 0;
+  setAssessment(active: boolean) {
+    this.assessment?.terminate();
+    this.assessment = null;
+    this.assessmentPending = 0;
+    if (!active) return;
+    const w = new Worker(
+      `${location.pathname.replace(/\/$/, "")}/review-assets/assessment-worker.js?v=0.7.0`,
+    );
+    this.assessment = w;
+    w.onmessage = ({ data }) => {
+      if (this.assessment !== w || this.closed) return;
+      this.assessmentPending = Math.max(0, this.assessmentPending - 1);
+      if (data.error || data.gap || this.time - data.through > 0.35) {
+        this.setAssessment(false);
+        this.onInterrupted();
+        return;
+      }
+      for (const event of data.events)
+        this.onFrame({
+          time: this.time,
+          midi: event.midi,
+          confidence: event.confidence,
+          rms: 0,
+          peak: 0,
+          attack: event.at,
+          assessment: true,
+        });
+    };
+    w.onerror = () => {
+      if (this.assessment === w) {
+        this.setAssessment(false);
+        this.onInterrupted();
+      }
+    };
+  }
   inputSettings: MediaTrackSettings | null = null;
   async open() {
     this.closed = false;
@@ -45,7 +83,7 @@ export class LocalAudio {
         this.stream.getAudioTracks()[0]?.getSettings() ?? null;
       await this.context.resume();
       await this.context.audioWorklet.addModule(
-        `${location.pathname.replace(/\/$/, "")}/capture-worklet.js?v=0.3.0`,
+        `${location.pathname.replace(/\/$/, "")}/capture-worklet.js?v=0.7.0`,
       );
       this.node = new AudioWorkletNode(this.context, "zheng-capture");
       this.context.createMediaStreamSource(this.stream).connect(this.node);
@@ -63,6 +101,21 @@ export class LocalAudio {
           peak: data.peak,
           attack: data.attack,
         });
+        if (this.assessment) {
+          if (!data.chunk || ++this.assessmentPending > 10) {
+            this.setAssessment(false);
+            this.onInterrupted();
+            return;
+          }
+          this.assessment.postMessage(
+            {
+              chunk: data.chunk,
+              sampleRate: data.sampleRate,
+              startTime: data.startTime,
+            },
+            [data.chunk.buffer],
+          );
+        }
       };
       for (const track of this.stream.getTracks()) {
         track.onended = () => this.onInterrupted();
@@ -157,6 +210,7 @@ export class LocalAudio {
     }
   }
   close() {
+    this.setAssessment(false);
     this.closed = true;
     this.stopPreview();
     this.node?.disconnect();
