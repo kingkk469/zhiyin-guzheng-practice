@@ -171,7 +171,7 @@ export default function NumberedSheet({
                           <circle
                             key={o}
                             cx={nx}
-                            cy={p.octave > 0 ? y + 39 - o * 7 : y + 99 + o * 7}
+                            cy={p.octave > 0 ? y + 39 - o * 7 : y + 107 + o * 7}
                             r="2"
                           />
                         ))}
@@ -209,7 +209,7 @@ export default function NumberedSheet({
                         {engine?.timeline.events[engine.lastMatched]?.key ===
                           n.key && (
                           <circle
-                            cx={nx}
+                            cx={nx + 22}
                             cy={y + 115}
                             r="4"
                             fill="none"
@@ -230,8 +230,8 @@ export default function NumberedSheet({
                     data-end={beam.end}
                     x1={x + 12 + beam.start * beatWidth - 9}
                     x2={x + 12 + beam.end * beatWidth + 9}
-                    y1={y + 83 + beam.level * 5}
-                    y2={y + 83 + beam.level * 5}
+                    y1={y + 91 + beam.level * 5}
+                    y2={y + 91 + beam.level * 5}
                     stroke="#202722"
                     strokeWidth="1.8"
                   />

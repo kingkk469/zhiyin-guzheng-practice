@@ -2051,7 +2051,7 @@ export default function GuzhengApp() {
       <footer className="v-footer">
         <span>知音 · 数字生命 King</span>
         <span>先调准，再练稳。</span>
-        <span>试用版 V0.4.1</span>
+        <span>试用版 V0.4.2</span>
       </footer>
     </div>
   );
