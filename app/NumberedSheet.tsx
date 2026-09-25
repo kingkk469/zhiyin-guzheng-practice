@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import ScorePlayhead from "./ScorePlayhead";
 import { notation, beatBeams } from "../lib/scores";
+import { timingLabel } from "../lib/rhythm-plan";
 import type {
   Score,
   Timeline,
@@ -134,11 +135,13 @@ export default function NumberedSheet({
                     const color =
                       ev?.kind === "wrong" || ev?.kind === "missed"
                         ? "#b44336"
-                        : ev?.kind === "correct"
-                          ? "#355f51"
-                          : unsupported
-                            ? "#929384"
-                            : "#202722";
+                        : ev?.rhythm !== undefined && ev.rhythm < 1
+                          ? "#a46412"
+                          : ev?.kind === "correct"
+                            ? "#355f51"
+                            : unsupported
+                              ? "#929384"
+                              : "#202722";
                     const dotted = [0.375, 0.75, 1.5, 3].includes(n.duration);
                     const mark = ev
                       ? ev.kind === "uncertain"
@@ -157,7 +160,7 @@ export default function NumberedSheet({
                         fill={color}
                         aria-label={`${p.digit} ${n.duration}拍 ${mark}`}
                       >
-                        <title>{`第${bar.measure}小节 ${p.digit} ${n.duration}拍${unsupported ? " 此技法不评分" : ""}`}</title>
+                        <title>{`第${bar.measure}小节 ${p.digit} ${n.duration}拍${unsupported ? " 此技法不评分" : ""}${ev ? `；${timingLabel(ev)}` : ""}`}</title>
                         <text
                           x={nx}
                           y={y + 77}
@@ -200,9 +203,11 @@ export default function NumberedSheet({
                         >
                           {mark}
                           {ev?.rhythm !== undefined && ev.rhythm < 1
-                            ? ev.offset! < 0
-                              ? " 早"
-                              : " 晚"
+                            ? ev.timing?.pattern
+                              ? " 节奏"
+                              : ev.offset! < 0
+                                ? " 早"
+                                : " 晚"
                             : ""}
                           {unsupported ? "不评分" : ""}
                         </text>

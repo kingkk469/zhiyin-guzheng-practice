@@ -23,6 +23,7 @@ import {
   type Report,
 } from "../lib/practice-core";
 import { SCORES } from "../lib/scores";
+import { timingLabel } from "../lib/rhythm-plan";
 import { noteName } from "../lib/music-core.mjs";
 type Page = "home" | "tune" | "score" | "report" | "history" | "content";
 type Stage = "ready" | "countdown" | "playing" | "paused";
@@ -515,7 +516,9 @@ export default function GuzhengApp() {
       write(CUSTOM, next);
       setCustom(next);
       setImportText("");
-      setMessage("曲谱已在本机导入，可进入曲库预览。");
+      setMessage(
+        "曲谱已在本机导入，将按谱中时值、休止和变速判断节奏。请先预览核对谱子。",
+      );
     } catch (e) {
       setImportErrors([
         e instanceof SyntaxError
@@ -1778,6 +1781,37 @@ export default function GuzhengApp() {
                 导出报告 ↓
               </button>
             </div>
+            {canAssessReport(report) &&
+              report.evaluations.some(
+                (e) => e.rhythm !== undefined && e.rhythm < 1,
+              ) && (
+                <details className="v-recording" open>
+                  <summary>逐音节奏问题</summary>
+                  <ul>
+                    {reportTimeline.events
+                      .filter((n) => n.midi !== null)
+                      .map((n, i) => {
+                        const e = report.evaluations.find(
+                          (v) => v.key === n.key,
+                        );
+                        if (!e || e.rhythm === undefined || e.rhythm === 1)
+                          return null;
+                        return (
+                          <li key={n.key}>
+                            第 {i + 1} 个音 · 第 {n.measure} 小节 ·{" "}
+                            {noteName(n.midi!)}：
+                            {e.pitch === true
+                              ? "音高正确；"
+                              : e.pitch === false
+                                ? "音高需调整；"
+                                : ""}
+                            {timingLabel(e)}
+                          </li>
+                        );
+                      })}
+                  </ul>
+                </details>
+              )}
             <div className="v-suggestions">
               {canAssessReport(report) && report.suggestions.length ? (
                 report.suggestions.map((s, i) => (
@@ -2121,7 +2155,7 @@ export default function GuzhengApp() {
       <footer className="v-footer">
         <span>知音 · 数字生命 King</span>
         <span>先调准，再练稳。</span>
-        <span>试用版 V0.9.0</span>
+        <span>试用版 V0.10.0</span>
       </footer>
     </div>
   );

@@ -86,7 +86,7 @@ try {
   assert.ok(Math.abs(clicks[4].at - clicks[0].at - 2) < 0.01);
   assert.ok(clicks[0].frequency > clicks[1].frequency);
   assert.equal(r.demo, false);
-  assert.equal(r.ruleVersion, "0.9.0-score-context-trial");
+  assert.equal(r.ruleVersion, "0.10.0-score-rhythm-trial");
   assert.equal(r.completed, true);
   assert.ok(r.pitchScore >= 90, JSON.stringify(r));
   assert.ok(r.rhythmScore >= 90, JSON.stringify(r));

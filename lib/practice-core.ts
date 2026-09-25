@@ -4,7 +4,13 @@ import {
   type PitchEvidence,
   type EvidenceDecision,
 } from "./score-evidence.ts";
-export const RULE_VERSION = "0.9.0-score-context-trial";
+import {
+  makeRhythmPlan,
+  gradeTiming,
+  checkRhythmPatterns,
+  type TimingDetail,
+} from "./rhythm-plan.ts";
+export const RULE_VERSION = "0.10.0-score-rhythm-trial";
 export type Note = {
   id: string;
   midi: number | null;
@@ -81,6 +87,7 @@ export type Evaluation = {
   pitch?: boolean;
   rhythm?: number;
   offset?: number;
+  timing?: TimingDetail;
   actual?: number;
   at: number;
 };
@@ -405,6 +412,7 @@ export class TuningGate {
 }
 export class PracticeEngine {
   timeline: Timeline;
+  rhythmPlan: ReturnType<typeof makeRhythmPlan>;
   results = new Map<string, Evaluation>();
   evidenceResolver = new ScoreEvidence();
   recognition: EvidenceDecision[] = [];
@@ -443,6 +451,7 @@ export class PracticeEngine {
   ) {
     this.timeline = timeline;
     this.settings = settings;
+    this.rhythmPlan = makeRhythmPlan(timeline, settings);
   }
   window(n: Event) {
     return Math.min(0.65, Math.max(0.18, n.beatSeconds * 0.44));
@@ -559,21 +568,12 @@ export class PracticeEngine {
       this.untrusted(at - 0.1, at + 0.15);
       return;
     }
-    const delta = (at - n.time) * 1000,
-      tolerance = Math.max(
-        this.settings.minimumTimingMs,
-        n.beatSeconds * 1000 * this.settings.timingFraction,
-      );
+    const delta = (at - n.time) * 1000;
+    const rule = this.rhythmPlan.get(n.key);
     const pitch = n.pitch
       ? Math.abs(c.midi - n.midi!) <= this.settings.pitchCents / 100
       : undefined;
-    const rhythm = n.rhythm
-      ? Math.abs(delta) <= tolerance
-        ? 1
-        : Math.abs(delta) <= tolerance * 2
-          ? 0.5
-          : 0
-      : undefined;
+    const rhythm = rule ? gradeTiming(delta, rule) : undefined;
     this.results.set(n.key, {
       key: n.key,
       measure: n.measure,
@@ -581,6 +581,12 @@ export class PracticeEngine {
       pitch,
       rhythm,
       offset: delta,
+      timing: rule
+        ? {
+            ...rule,
+            direction: rhythm === 1 ? "on-time" : delta < 0 ? "early" : "late",
+          }
+        : undefined,
       actual: c.midi,
       at,
     });
@@ -599,6 +605,10 @@ export class PracticeEngine {
       this.recent = [];
     }
     this.lastMatched = i;
+    checkRhythmPatterns(
+      this.timeline.events.slice(Math.max(0, i - 2), i + 3),
+      this.results,
+    );
     this.lastReliableTime = at;
     // Require three consecutive, mostly mismatching pitches matching an earlier phrase.
     // A single wrong note or a notated repeat must not trigger a rewind warning.
@@ -704,6 +714,7 @@ export class PracticeEngine {
   }
   report(s: Score, completed: boolean, demo = false): Report {
     this.flushCapture();
+    checkRhythmPatterns(this.timeline.events, this.results);
     const notes = this.timeline.events.filter((n) => n.midi !== null),
       count = notes.length || 1;
     const p = notes.filter((n) => n.pitch),
@@ -830,7 +841,7 @@ export class PracticeEngine {
       speeds,
       comment: reasons.length
         ? `${reasons.join("；")}。本次结果不足以评价完整演奏，未判断不代表弹错。`
-        : `本次按${this.timeline.bpm}拍完成，${correct}个音的音高与进入时间均在容差内。${suggestions[0]?.text ?? "本次支持范围内未发现需要重点重练的片段。"}`,
+        : `本次按${this.timeline.bpm}拍完成，共${notes.length}个音，${correct}个音的音高与节奏均在容差内，${evaluations.filter((e) => e.kind === "uncertain").length}个音未判断。${suggestions[0]?.text ?? "本次支持范围内未发现需要重点重练的片段。"}`,
     };
   }
 }

@@ -36,7 +36,7 @@ export class LocalAudio {
     this.assessmentReady = false;
     if (!active) return;
     const w = new Worker(
-      `${location.pathname.replace(/\/$/, "")}/review-assets/assessment-worker.js?v=0.9.0`,
+      `${location.pathname.replace(/\/$/, "")}/review-assets/assessment-worker.js?v=0.10.0`,
     );
     this.assessment = w;
     let ready: () => void = () => {};
