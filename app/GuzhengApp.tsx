@@ -726,6 +726,7 @@ export default function GuzhengApp() {
           at: f.attack - r.start,
           midi: f.peak > 0.98 ? null : f.midi,
           confidence: f.confidence,
+          evidence: f.peak > 0.98 ? undefined : f.evidence,
         });
         const recent = [...r.engine.results.values()]
           .filter((e) => e.pitch !== undefined && e.actual !== undefined)
@@ -1724,6 +1725,27 @@ export default function GuzhengApp() {
                   可靠判断覆盖：音高 {pct(report.pitchCoverage)} / 节奏{" "}
                   {pct(report.rhythmCoverage)}
                 </small>
+                {!!report.recognition?.length && (
+                  <p className="v-muted">
+                    乐谱顺序辅助确认{" "}
+                    {
+                      report.recognition.filter(
+                        (n) => n.kind === "score-context",
+                      ).length
+                    }{" "}
+                    次； 排除疑似余音/泛音{" "}
+                    {
+                      report.recognition.filter((n) => n.kind === "ringing")
+                        .length
+                    }{" "}
+                    次； 未判断{" "}
+                    {
+                      report.recognition.filter((n) => n.kind === "uncertain")
+                        .length
+                    }{" "}
+                    次。 导出报告可查看原始候选和判断依据。
+                  </p>
+                )}
                 {report.reasons.length > 0 && (
                   <ul>
                     {report.reasons.map((x) => (

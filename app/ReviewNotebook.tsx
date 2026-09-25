@@ -59,7 +59,7 @@ export default function ReviewNotebook({
                 {
                   id: result.runId,
                   createdAt: new Date().toISOString(),
-                  appVersion: "0.7.0",
+                  appVersion: "0.8.0",
                   result,
                 },
               ],
@@ -135,7 +135,7 @@ export default function ReviewNotebook({
                         {
                           id: result.runId,
                           createdAt: new Date().toISOString(),
-                          appVersion: "0.7.0",
+                          appVersion: "0.8.0",
                           result,
                         },
                       ]

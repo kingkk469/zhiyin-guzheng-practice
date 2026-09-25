@@ -97,6 +97,12 @@ try {
   assert.equal(r.completed, true);
   assert.ok(r.pitchScore >= 90, JSON.stringify(r));
   assert.ok(r.rhythmScore >= 90, JSON.stringify(r));
+  assert.equal(r.ruleVersion, "0.8.0-score-context-trial");
+  assert.ok(
+    r.recognition.length >= 14,
+    "worker evidence reaches score resolver and saved report",
+  );
+  assert.ok(r.recognition.every((e) => e.candidates.length > 0));
   assert.ok(
     (await page.locator("audio").count()) > 0,
     "recording playback exists",

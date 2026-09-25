@@ -1,5 +1,10 @@
 /** Pure, versioned practice rules. Audio and UI must not move the reference clock. */
-export const RULE_VERSION = "0.7.0-residual-trial";
+import {
+  ScoreEvidence,
+  type PitchEvidence,
+  type EvidenceDecision,
+} from "./score-evidence.ts";
+export const RULE_VERSION = "0.8.0-score-context-trial";
 export type Note = {
   id: string;
   midi: number | null;
@@ -83,8 +88,10 @@ export type Capture = {
   at: number;
   midi: number | null;
   confidence: number;
+  evidence?: PitchEvidence;
 };
 export type Report = {
+  recognition?: EvidenceDecision[];
   judging?: {
     pitchCents: number;
     timingFraction: number;
@@ -399,6 +406,9 @@ export class TuningGate {
 export class PracticeEngine {
   timeline: Timeline;
   results = new Map<string, Evaluation>();
+  evidenceResolver = new ScoreEvidence();
+  recognition: EvidenceDecision[] = [];
+  pendingCapture: Capture | null = null;
   extras: Evaluation[] = [];
   lastMatched = -1;
   startedAt = 0;
@@ -441,7 +451,54 @@ export class PracticeEngine {
     this.questionable.push({ start, end });
   }
   consume(c: Capture) {
+    // One bounded look-ahead for ambiguous evidence; original timestamps are retained.
+    this.flushCapture(c.confidence >= 0.8 ? (c.midi ?? undefined) : undefined);
+    if (c.evidence && c.confidence < 0.8) {
+      this.pendingCapture = c;
+      return;
+    }
+    this.consumeResolved(c);
+  }
+  flushCapture(nextHeard?: number) {
+    const c = this.pendingCapture;
+    this.pendingCapture = null;
+    if (c) this.consumeResolved(c, nextHeard);
+  }
+  consumeResolved(c: Capture, nextHeard?: number) {
     const at = c.at - this.settings.latencyMs / 1000;
+    if (c.evidence) {
+      const expected = this.timeline.events.flatMap((n, i) => {
+        if (
+          n.midi === null ||
+          !n.pitch ||
+          this.results.has(n.key) ||
+          i <= this.lastMatched ||
+          Math.abs(at - n.time) > this.window(n)
+        )
+          return [];
+        const next = this.timeline.events
+          .slice(i + 1)
+          .find((v) => v.midi !== null && v.pitch);
+        return [
+          { midi: n.midi, time: n.time, nextMidi: next?.midi ?? undefined },
+        ];
+      });
+      const decision = this.evidenceResolver.resolve(
+        at,
+        c.midi,
+        c.confidence,
+        c.evidence,
+        this.lost ? [] : expected,
+        nextHeard,
+      );
+      this.recognition.push(decision);
+      if (decision.kind === "ringing") return;
+      c = {
+        ...c,
+        midi: decision.midi,
+        confidence: decision.midi === null ? 0 : 0.9,
+      };
+    }
     const active = this.timeline.events.find(
       (n) =>
         at >= n.time && at < n.end && n.midi !== null && !n.pitch && !n.rhythm,
@@ -450,8 +507,9 @@ export class PracticeEngine {
     const candidates = this.timeline.events
       .map((n, i) => ({ n, i }))
       .filter(
-        ({ n }) =>
+        ({ n, i }) =>
           n.midi !== null &&
+          (!c.evidence || i > this.lastMatched) &&
           (n.pitch || n.rhythm) &&
           !this.results.has(n.key) &&
           Math.abs(at - n.time) <= this.window(n),
@@ -591,11 +649,17 @@ export class PracticeEngine {
     }
   }
   tick(time: number) {
+    if (this.pendingCapture && time >= this.pendingCapture.at + 0.22)
+      this.flushCapture();
     for (const n of this.timeline.events) {
       if (
         n.midi === null ||
         (!n.pitch && !n.rhythm) ||
         this.results.has(n.key) ||
+        (this.pendingCapture !== null &&
+          Math.abs(
+            this.pendingCapture.at - this.settings.latencyMs / 1000 - n.time,
+          ) <= this.window(n)) ||
         time <= n.time + this.window(n)
       )
         continue;
@@ -639,6 +703,7 @@ export class PracticeEngine {
     }
   }
   report(s: Score, completed: boolean, demo = false): Report {
+    this.flushCapture();
     const notes = this.timeline.events.filter((n) => n.midi !== null),
       count = notes.length || 1;
     const p = notes.filter((n) => n.pitch),
@@ -740,6 +805,7 @@ export class PracticeEngine {
       scoreId: s.id,
       scoreVersion: s.version,
       ruleVersion: RULE_VERSION,
+      recognition: this.recognition.map((r) => ({ ...r })),
       judging: { ...this.settings },
       title: s.title,
       bpm: this.timeline.bpm,

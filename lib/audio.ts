@@ -1,7 +1,9 @@
 import { hzToMidi } from "./music-core.mjs";
 import { InstrumentPitchDetector } from "./pitch-detector.mjs";
+import type { PitchEvidence } from "./score-evidence";
 export type Frame = {
   assessment?: boolean;
+  evidence?: PitchEvidence;
   time: number;
   midi: number | null;
   confidence: number;
@@ -34,7 +36,7 @@ export class LocalAudio {
     this.assessmentReady = false;
     if (!active) return;
     const w = new Worker(
-      `${location.pathname.replace(/\/$/, "")}/review-assets/assessment-worker.js?v=0.7.0-ready1`,
+      `${location.pathname.replace(/\/$/, "")}/review-assets/assessment-worker.js?v=0.8.0`,
     );
     this.assessment = w;
     let ready: () => void = () => {};
@@ -74,6 +76,7 @@ export class LocalAudio {
           peak: 0,
           attack: event.at,
           assessment: true,
+          evidence: event.evidence ?? undefined,
         });
     };
     w.onerror = () => {

@@ -275,7 +275,7 @@ function ReviewSession({
         location.pathname.replace(/\/$/, "") + "/review-assets/",
         location.origin,
       ).href;
-      const w = new Worker(assets + "worker.js?v=0.7.0");
+      const w = new Worker(assets + "worker.js?v=0.8.0");
       worker.current = w;
       return await new Promise<boolean>((resolve) => {
         settle.current = resolve;
@@ -315,7 +315,7 @@ function ReviewSession({
                           {
                             id: completed.runId,
                             createdAt: new Date().toISOString(),
-                            appVersion: "0.7.0",
+                            appVersion: "0.8.0",
                             result: completed,
                           },
                         ],
