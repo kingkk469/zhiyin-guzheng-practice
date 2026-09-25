@@ -1,6 +1,6 @@
 {
   "name": "zhiyin-guzheng-practice",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -10,7 +10,7 @@
     "build": "npm run build:review && next build",
     "build:pages": "npm run build:review && next build",
     "start": "next start --hostname 127.0.0.1 --port 3219",
-    "test": "node --test --test-isolation=none tests/music-core.test.mjs tests/practice.test.mjs tests/capture.test.mjs tests/tuning-sweep.test.mjs tests/pitch-detector.test.mjs tests/score-motion.test.mjs tests/fine-tuning.test.mjs tests/review-candidates.test.mjs tests/review-comparison.test.mjs tests/residual-review.test.mjs tests/score-evidence.test.mjs",
+    "test": "node --test --test-isolation=none tests/music-core.test.mjs tests/practice.test.mjs tests/capture.test.mjs tests/tuning-sweep.test.mjs tests/pitch-detector.test.mjs tests/score-motion.test.mjs tests/fine-tuning.test.mjs tests/review-candidates.test.mjs tests/review-comparison.test.mjs tests/residual-review.test.mjs tests/score-evidence.test.mjs tests/pluck-evidence.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "build:sites": "npm run build:review && vinext build",

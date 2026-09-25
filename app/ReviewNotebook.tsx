@@ -13,7 +13,7 @@ import {
   validReviewRun,
 } from "../lib/review-comparison.mjs";
 type Result = {
-  residual?: { events: { pitchMidi: number | null }[] };
+  residual?: { events: { pitchMidi: number | null; status?: string }[] };
   runId?: string;
   notes: { pitchMidi: number }[];
   review: {
@@ -59,7 +59,7 @@ export default function ReviewNotebook({
                 {
                   id: result.runId,
                   createdAt: new Date().toISOString(),
-                  appVersion: "0.8.0",
+                  appVersion: "0.9.0",
                   result,
                 },
               ],
@@ -135,7 +135,7 @@ export default function ReviewNotebook({
                         {
                           id: result.runId,
                           createdAt: new Date().toISOString(),
-                          appVersion: "0.8.0",
+                          appVersion: "0.9.0",
                           result,
                         },
                       ]
@@ -266,19 +266,21 @@ export default function ReviewNotebook({
                 <p>
                   新起音对照：
                   {(() => {
-                    const events = result.residual.events,
+                    const events = result.residual.events.filter(
+                        (n) => n.status !== "suppressed",
+                      ),
                       c = compareSequence(
                         expected,
-                        events.map((n) =>
-                          n.pitchMidi === null ? -1 : Math.round(n.pitchMidi),
-                        ),
+                        events
+                          .filter((n) => n.pitchMidi !== null)
+                          .map((n) => Math.round(n.pitchMidi!)),
                       );
-                    return `匹配${c.matched} · 多检${c.extra} · 漏检${c.missed} · 不同或未判断${c.wrong}（含${events.filter((n) => n.pitchMidi === null).length}个未判断起音）`;
+                    return `音序匹配${c.matched} · 多出项${c.extra} · 缺少项${c.missed} · 替换项${c.wrong}（另有${events.filter((n) => n.pitchMidi === null).length}个未判断事件）`;
                   })()}
                 </p>
               )}
               <small>
-                仅比较音符顺序，不评节奏或音分。重复音可能有多种对应方式，这些差异不是演奏评分。
+                老师答案未标起音时间，因此这里只比较音序，不评节奏或音分。“替换项”可能是一个误报加一个漏音，不能直接当成弹错；请结合上方时间和原音复核。
               </small>
             </div>
           )}

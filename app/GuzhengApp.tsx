@@ -627,11 +627,15 @@ export default function GuzhengApp() {
   });
   useEffect(() => {
     if (!audio.current) return;
-    audio.current.onInterrupted = () => {
+    audio.current.onInterrupted = (reason) => {
       if (sweepSession.current.active)
         stopSweepRef.current("音频输入中断，巡检已停止。");
       setMic(false);
-      pauseRef.current("音频输入已中断，请重新检查麦克风。");
+      pauseRef.current(
+        reason
+          ? `识别已暂停：${reason}。请重新开始练习。`
+          : "音频输入已中断，请重新检查麦克风。",
+      );
     };
     audio.current.onFrame = (f: Frame) => {
       const r = run.current;
@@ -824,7 +828,10 @@ export default function GuzhengApp() {
         {page === "home" && (
           <>
             <div className="review-entry">
-              <ReviewTrial onOpen={prepareReview} />
+              <ReviewTrial
+                scores={[...SCORES, ...custom]}
+                onOpen={prepareReview}
+              />
             </div>
             <section className="v-hero">
               <div>
@@ -1834,6 +1841,7 @@ export default function GuzhengApp() {
             <div className="v-recording">
               <h3>本次录音</h3>
               <ReviewTrial
+                scores={[...SCORES, ...custom]}
                 onOpen={prepareReview}
                 getRecording={() => recordedBlob.current}
               />
@@ -2113,7 +2121,7 @@ export default function GuzhengApp() {
       <footer className="v-footer">
         <span>知音 · 数字生命 King</span>
         <span>先调准，再练稳。</span>
-        <span>试用版 V0.5.0</span>
+        <span>试用版 V0.9.0</span>
       </footer>
     </div>
   );

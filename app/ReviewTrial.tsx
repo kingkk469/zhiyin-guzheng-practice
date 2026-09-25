@@ -2,6 +2,13 @@
 import { useEffect, useRef, useState } from "react";
 import { noteName } from "../lib/music-core.mjs";
 import ReviewNotebook from "./ReviewNotebook";
+import { makeTimeline, type Score } from "../lib/practice-core";
+type ReferenceScore = {
+  id: string;
+  title: string;
+  version: string;
+  notes: number[];
+};
 import {
   newSample,
   updateSample,
@@ -19,12 +26,14 @@ type ReviewNote = HeardNote & {
   reasons: string[];
 };
 type Result = {
+  referenceScore?: ReferenceScore | null;
   residual?: {
     events: {
       startTimeSeconds: number;
       pitchMidi: number | null;
       status: string;
       reasons: string[];
+      assistance?: string;
     }[];
   };
   runId?: string;
@@ -41,9 +50,11 @@ type Result = {
 export default function ReviewTrial({
   getRecording,
   onOpen,
+  scores = [],
 }: {
   getRecording?: () => Blob | null;
   onOpen?: () => void;
+  scores?: Score[];
 }) {
   const [open, setOpen] = useState(false);
   const [recording, setRecording] = useState<Blob | null>(null);
@@ -60,7 +71,11 @@ export default function ReviewTrial({
         试用新识别 · 录音复核
       </button>
       {open && (
-        <ReviewSession recording={recording} close={() => setOpen(false)} />
+        <ReviewSession
+          scores={scores}
+          recording={recording}
+          close={() => setOpen(false)}
+        />
       )}
     </>
   );
@@ -68,9 +83,11 @@ export default function ReviewTrial({
 function ReviewSession({
   recording,
   close,
+  scores,
 }: {
   recording?: Blob | null;
   close: () => void;
+  scores: Score[];
 }) {
   const dialog = useRef<HTMLDialogElement>(null),
     worker = useRef<Worker | null>(null),
@@ -85,6 +102,7 @@ function ReviewSession({
     context = useRef<AudioContext | null>(null),
     watchdog = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [blob, setBlob] = useState<Blob | null>(recording ?? null),
+    [referenceScore, setReferenceScore] = useState<ReferenceScore | null>(null),
     [sample, setSample] = useState<ReviewSample | null>(() =>
       recording ? newSample(recording, "本次练习录音") : null,
     ),
@@ -96,6 +114,7 @@ function ReviewSession({
     [progress, setProgress] = useState(0),
     [result, setResult] = useState<Result | null>(null),
     [showAll, setShowAll] = useState(false),
+    [showEvents, setShowEvents] = useState(false),
     [batchProgress, setBatchProgress] = useState(""),
     [name, setName] = useState(recording ? "本次练习录音" : "尚未选择录音");
   const stopTracks = () => {
@@ -156,6 +175,10 @@ function ReviewSession({
     return () => window.removeEventListener("beforeunload", warn);
   }, [recordingNow]);
   function choose(b: Blob, label: string, existing?: ReviewSample) {
+    setReferenceScore(
+      (existing?.runs.at(-1)?.result as Result | undefined)?.referenceScore ??
+        null,
+    );
     if (b.size > 20 * 1024 * 1024) {
       setMessage("请选择20MB以内的录音。");
       return;
@@ -240,7 +263,11 @@ function ReviewSession({
       }
     }
   }
-  async function analyze(input = blob, target = sample): Promise<boolean> {
+  async function analyze(
+    input = blob,
+    target = sample,
+    reference = referenceScore,
+  ): Promise<boolean> {
     if (!input) return false;
     player.current?.pause();
     setBusy(true);
@@ -275,7 +302,7 @@ function ReviewSession({
         location.pathname.replace(/\/$/, "") + "/review-assets/",
         location.origin,
       ).href;
-      const w = new Worker(assets + "worker.js?v=0.8.0");
+      const w = new Worker(assets + "worker.js?v=0.9.0");
       worker.current = w;
       return await new Promise<boolean>((resolve) => {
         settle.current = resolve;
@@ -315,7 +342,7 @@ function ReviewSession({
                           {
                             id: completed.runId,
                             createdAt: new Date().toISOString(),
-                            appVersion: "0.8.0",
+                            appVersion: "0.9.0",
                             result: completed,
                           },
                         ],
@@ -349,7 +376,9 @@ function ReviewSession({
             resolve(false);
           }
         }, 180000);
-        w.postMessage({ samples: pcm, assets }, [pcm.buffer]);
+        w.postMessage({ samples: pcm, assets, referenceScore: reference }, [
+          pcm.buffer,
+        ]);
       });
     } catch (e) {
       if (context.current) void context.current.close().catch(() => {});
@@ -371,7 +400,13 @@ function ReviewSession({
       setBatchProgress(`整组复测 ${i + 1}/${samples.length}，请保持页面打开`);
       const s = samples[i];
       choose(s.audio, s.name, s);
-      if (!(await analyze(s.audio, s))) {
+      if (
+        !(await analyze(
+          s.audio,
+          s,
+          (s.runs.at(-1)?.result as Result | undefined)?.referenceScore ?? null,
+        ))
+      ) {
         batchActive.current = false;
         break;
       }
@@ -434,6 +469,44 @@ function ReviewSession({
         </button>
       </div>
       <p>先试一小段连续拨弦。录音不会上传；本次只核对识别结果，不打分。</p>
+      <label>
+        关联乐谱（可选，选这段录音实际练习的谱子）
+        <select
+          disabled={busy || recordingNow}
+          value={referenceScore?.id ?? ""}
+          onChange={(e) => {
+            const selected = scores.find((s) => s.id === e.target.value);
+            setReferenceScore(
+              selected
+                ? {
+                    id: selected.id,
+                    title: selected.title,
+                    version: selected.version,
+                    notes: makeTimeline(selected, selected.bpm)
+                      .events.filter((n) => n.midi !== null)
+                      .map((n) => n.midi!),
+                  }
+                : null,
+            );
+          }}
+        >
+          <option value="">不关联，独立识别</option>
+          {referenceScore &&
+            !scores.some((s) => s.id === referenceScore.id) && (
+              <option value={referenceScore.id}>
+                {referenceScore.title}（保存的乐谱）
+              </option>
+            )}
+          {scores.map((s) => (
+            <option value={s.id} key={s.id}>
+              {s.title}
+            </option>
+          ))}
+        </select>
+        <small>
+          选择后重新识别才生效。仅用乐谱帮助判断接近的候选，不使用下方老师纠正答案。
+        </small>
+      </label>
       <div className="review-actions">
         {!recordingNow ? (
           <button
@@ -485,7 +558,8 @@ function ReviewSession({
       {batchProgress && <p>{batchProgress}</p>}
       {busy && <progress aria-label="识别进度" max={100} value={progress} />}
       {result && (
-        <>
+        <details>
+          <summary>查看 Basic Pitch 原始候选与旧整理结果（诊断参考）</summary>
           <div className="review-heading">
             <p>
               待核对 <b>{result.review.retainedCount}</b> 个候选；疑似多检{" "}
@@ -533,37 +607,86 @@ function ReviewSession({
                 </button>
               ))}
           </div>
-        </>
+        </details>
       )}
       {result?.residual && (
         <section aria-label="新起音对照">
-          <h3>新起音判音 · 实验对照</h3>
+          <h3>拨弦识别结果</h3>
+          <p>
+            已识别{" "}
+            {
+              result.residual.events.filter(
+                (n) => n.pitchMidi !== null && n.status !== "suppressed",
+              ).length
+            }{" "}
+            个音； 未判断{" "}
+            {
+              result.residual.events.filter((n) => n.status === "uncertain")
+                .length
+            }{" "}
+            个事件； 排除疑似非拨弦{" "}
+            {
+              result.residual.events.filter((n) => n.status === "suppressed")
+                .length
+            }{" "}
+            个事件。
+          </p>
+          <p>
+            {result.referenceScore
+              ? `本次关联：${result.referenceScore.title}`
+              : "本次未关联乐谱，使用独立声学识别。"}
+          </p>
+          <button className="text-button" onClick={exportResult}>
+            导出拨弦结果与诊断
+          </button>
+          <label>
+            <input
+              type="checkbox"
+              checked={showEvents}
+              onChange={(e) => setShowEvents(e.target.checked)}
+            />
+            显示未判断与已排除事件
+          </label>
           <small>
             只尝试D调21根空弦的单弦拨奏。暂不支持撮、摇指、快速连音；不用于评分，结果需回听确认。
           </small>
           <div className="review-notes residual-notes">
-            {result.residual.events.map((n, i) => (
-              <button
-                key={i}
-                onClick={() => {
-                  if (player.current) {
-                    player.current.currentTime = Math.max(
-                      0,
-                      n.startTimeSeconds - 0.12,
-                    );
-                    void player.current
-                      .play()
-                      .catch(() => setMessage("请点击播放器回听。"));
-                  }
-                }}
-              >
-                <strong>
-                  {n.pitchMidi === null ? "未判断" : noteName(n.pitchMidi)}
-                </strong>
-                <span>{n.startTimeSeconds.toFixed(2)} 秒</span>
-                <small>{n.reasons.join("；")}</small>
-              </button>
-            ))}
+            {result.residual.events
+              .filter(
+                (n) =>
+                  showEvents ||
+                  (n.pitchMidi !== null && n.status !== "suppressed"),
+              )
+              .map((n, i) => (
+                <button
+                  key={i}
+                  onClick={() => {
+                    if (player.current) {
+                      player.current.currentTime = Math.max(
+                        0,
+                        n.startTimeSeconds - 0.12,
+                      );
+                      void player.current
+                        .play()
+                        .catch(() => setMessage("请点击播放器回听。"));
+                    }
+                  }}
+                >
+                  <strong>
+                    {n.pitchMidi === null ? "未判断" : noteName(n.pitchMidi)}
+                  </strong>
+                  {n.assistance === "score-context" && (
+                    <small>乐谱顺序辅助确认</small>
+                  )}
+                  {showEvents && (
+                    <small>
+                      {n.status === "suppressed" ? "已排除：" : ""}
+                      {n.reasons.join("；")}
+                    </small>
+                  )}
+                  <span>{n.startTimeSeconds.toFixed(2)} 秒</span>
+                </button>
+              ))}
           </div>
         </section>
       )}

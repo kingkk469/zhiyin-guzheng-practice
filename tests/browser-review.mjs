@@ -60,6 +60,7 @@ try {
     mimeType: "audio/wav",
     buffer: wav(),
   });
+  await page.getByLabel(/关联乐谱（可选/).selectOption({ index: 1 });
   await page
     .getByRole("button", { name: "开始新引擎识别", exact: true })
     .click();
@@ -76,6 +77,11 @@ try {
     "Review status:",
     await page.getByRole("status").allTextContents(),
   );
+  await page
+    .getByText("查看 Basic Pitch 原始候选与旧整理结果（诊断参考）", {
+      exact: true,
+    })
+    .click();
   assert.ok(
     await page
       .getByRole("button", { name: "导出识别结果", exact: true })
@@ -86,13 +92,25 @@ try {
     page.getByRole("button", { name: "导出识别结果", exact: true }).click(),
   ]);
   const result = JSON.parse(await readFile(await download.path(), "utf8"));
+  assert.ok(
+    result.referenceScore?.notes.length > 0,
+    "explicit score snapshot reaches worker export",
+  );
+  assert.deepEqual(result.residual.referenceScore, result.referenceScore);
+  assert.equal(
+    await page
+      .getByRole("heading", { name: "拨弦识别结果", exact: true })
+      .count(),
+    1,
+  );
+  assert.equal(await page.locator(".residual-notes button").count(), 3);
   for (const pitch of [62, 66, 69])
     assert.ok(
       result.notes.some((n) => n.pitchMidi === pitch),
       `missing ${pitch}`,
     );
   assert.equal(result.mode, "experimental-transcription");
-  assert.equal(result.residual.ruleVersion, "residual-offline-1");
+  assert.equal(result.residual.ruleVersion, "residual-offline-2");
   assert.deepEqual(
     result.residual.events
       .filter((n) => n.pitchMidi !== null)

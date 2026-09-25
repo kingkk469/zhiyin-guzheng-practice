@@ -97,7 +97,7 @@ try {
   assert.equal(r.completed, true);
   assert.ok(r.pitchScore >= 90, JSON.stringify(r));
   assert.ok(r.rhythmScore >= 90, JSON.stringify(r));
-  assert.equal(r.ruleVersion, "0.8.0-score-context-trial");
+  assert.equal(r.ruleVersion, "0.9.0-score-context-trial");
   assert.ok(
     r.recognition.length >= 14,
     "worker evidence reaches score resolver and saved report",

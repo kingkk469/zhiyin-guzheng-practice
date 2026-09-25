@@ -20,7 +20,7 @@ export class LocalAudio {
   recordingStart = 0;
   output: AudioContext | null = null;
   onFrame: (f: Frame) => void = () => {};
-  onInterrupted: () => void = () => {};
+  onInterrupted: (reason?: string) => void = () => {};
   closed = false;
   detector = new InstrumentPitchDetector();
   assessment: Worker | null = null;
@@ -36,7 +36,7 @@ export class LocalAudio {
     this.assessmentReady = false;
     if (!active) return;
     const w = new Worker(
-      `${location.pathname.replace(/\/$/, "")}/review-assets/assessment-worker.js?v=0.8.0`,
+      `${location.pathname.replace(/\/$/, "")}/review-assets/assessment-worker.js?v=0.9.0`,
     );
     this.assessment = w;
     let ready: () => void = () => {};
@@ -64,10 +64,18 @@ export class LocalAudio {
       this.assessmentPending = Math.max(0, this.assessmentPending - 1);
       if (data.error || data.gap || this.time - data.through > 0.35) {
         this.setAssessment(false);
-        this.onInterrupted();
+        this.onInterrupted(
+          data.error
+            ? `识别器错误：${data.message ?? "未知"}`
+            : data.gap
+              ? "采音数据不连续"
+              : "识别处理延迟超过350毫秒",
+        );
         return;
       }
-      for (const event of data.events)
+      for (const event of data.events.filter(
+        (e: { suppressed?: boolean }) => !e.suppressed,
+      ))
         this.onFrame({
           time: this.time,
           midi: event.midi,
@@ -79,10 +87,10 @@ export class LocalAudio {
           evidence: event.evidence ?? undefined,
         });
     };
-    w.onerror = () => {
+    w.onerror = (event) => {
       if (this.assessment === w) {
         this.setAssessment(false);
-        this.onInterrupted();
+        this.onInterrupted(`识别器加载或运行失败：${event.message}`);
       }
     };
     return loaded;
@@ -133,7 +141,9 @@ export class LocalAudio {
         if (this.assessment && this.assessmentReady) {
           if (!data.chunk || ++this.assessmentPending > 10) {
             this.setAssessment(false);
-            this.onInterrupted();
+            this.onInterrupted(
+              data.chunk ? "识别处理积压超过10帧" : "缺少原始采音数据",
+            );
             return;
           }
           this.assessment.postMessage(

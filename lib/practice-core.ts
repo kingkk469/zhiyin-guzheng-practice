@@ -4,7 +4,7 @@ import {
   type PitchEvidence,
   type EvidenceDecision,
 } from "./score-evidence.ts";
-export const RULE_VERSION = "0.8.0-score-context-trial";
+export const RULE_VERSION = "0.9.0-score-context-trial";
 export type Note = {
   id: string;
   midi: number | null;
