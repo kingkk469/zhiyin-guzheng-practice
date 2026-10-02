@@ -48,7 +48,7 @@ try {
   });
   await page.goto(
     process.env.TEST_BASE_URL ??
-      "http://127.0.0.1:3219/zhiyin-guzheng-practice/",
+      "http://127.0.0.1:3219/",
   );
   await page
     .getByRole("button", { name: "试用新识别 · 录音复核", exact: true })
@@ -310,7 +310,7 @@ try {
   });
   await failure.goto(
     process.env.TEST_BASE_URL ??
-      "http://127.0.0.1:3219/zhiyin-guzheng-practice/",
+      "http://127.0.0.1:3219/",
   );
   await failure
     .getByRole("button", { name: "试用新识别 · 录音复核", exact: true })

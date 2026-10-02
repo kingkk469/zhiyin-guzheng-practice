@@ -8,7 +8,7 @@ import {
   hzToMidi,
   midiToHz,
   noteName,
-} from "../lib/music-core.mjs";
+} from "./legacy/music-core.mjs";
 
 test("converts frequency and midi in both directions", () => {
   assert.equal(Math.round(midiToHz(69)), 440);

@@ -1,47 +1,28 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Metronome, type ClickTone } from "../lib/metronome";
 import { FineTuningInput } from "../lib/fine-tuning";
-import Sheet from "./NumberedSheet";
 import ReviewTrial from "./ReviewTrial";
 import StringGuide from "./StringGuide";
 import CentsDial from "./CentsDial";
 import TunerComparison from "./TunerComparison";
 import TuningSweepPanel from "./TuningSweepPanel";
+import AccompanimentPanel, { type FollowRecord } from "./AccompanimentPanel";
 import { TuningSweep, type SweepView } from "../lib/tuning-sweep";
 import { LocalAudio, type Frame } from "../lib/audio";
 import {
-  PracticeEngine,
-  canAssessReport,
   TuningGate,
   STRINGS,
-  makeTimeline,
-  validateScore,
-  clamp,
   RULE_VERSION,
+  validateScore,
   type Score,
   type Report,
 } from "../lib/practice-core";
 import { SCORES } from "../lib/scores";
-import { timingLabel } from "../lib/rhythm-plan";
 import { noteName } from "../lib/music-core.mjs";
 type Page = "home" | "tune" | "score" | "report" | "history" | "content";
-type Stage = "ready" | "countdown" | "playing" | "paused";
-type Run = {
-  engine: PracticeEngine;
-  start: number;
-  demo: boolean;
-  next: number;
-  score: Score;
-  stage: Stage;
-  lastFrame: number;
-  follow: boolean;
-  warnedLost: boolean;
-};
 const RECORDS = "zhiyin-v2-records",
   CUSTOM = "zhiyin-v2-scores",
-  SPEEDS = "zhiyin-v2-speeds";
-const pct = (n: number) => `${Math.round(n * 100)}%`;
+  FOLLOW = "zhiyin-v3-accompaniment";
 const date = (s: string) =>
   new Date(s).toLocaleString("zh-CN", {
     month: "short",
@@ -85,56 +66,29 @@ export default function GuzhengApp() {
   const [page, setPage] = useState<Page>("home"),
     [score, setScore] = useState<Score>(SCORES[0]),
     [custom, setCustom] = useState<Score[]>([]);
-  const [bpm, setBpm] = useState(60),
-    [from, setFrom] = useState(1),
-    [to, setTo] = useState(4),
-    [message, setMessage] = useState("");
-  const metronome = useRef(new Metronome());
-  const [clickTone, setClickTone] = useState<ClickTone>("wood");
-  const [judging, setJudging] = useState<"gentle" | "standard">("gentle");
-  const [clickVolume, setClickVolume] = useState(0.7);
-  const [practiceMode, setPracticeMode] = useState<"follow" | "assessment">(
-    "follow",
-  );
+  const [message, setMessage] = useState("");
   const fineInput = useRef(new FineTuningInput());
-  const [tuningHint, setTuningHint] = useState(false);
-  const [tuningHelp, setTuningHelp] = useState(false);
-  const [inWechat, setInWechat] = useState(false);
+  const [tuningHelp, setTuningHelp] = useState(false),
+    [inWechat, setInWechat] = useState(false);
   const [fineFrame, setFineFrame] = useState<Frame | null>(null);
   const [mic, setMic] = useState(false),
     [inputRate, setInputRate] = useState<number | null>(null),
-    [opening, setOpening] = useState(false),
-    [demo, setDemo] = useState(false),
-    [records, setRecords] = useState<Report[]>([]),
+    [opening, setOpening] = useState(false);
+  const [records, setRecords] = useState<Report[]>([]),
     [report, setReport] = useState<Report | null>(null);
-  const [elapsed, setElapsed] = useState(-10),
-    [stage, setStage] = useState<Stage>("ready"),
-    [frame, setFrame] = useState<Frame | null>(null),
+  const [followRecords, setFollowRecords] = useState<FollowRecord[]>([]);
+  const [frame, setFrame] = useState<Frame | null>(null),
     [tuning, setTuning] = useState({ index: 0, passed: [] as number[] }),
-    [environment, setEnvironment] = useState("待检查"),
-    [preview, setPreview] = useState(false);
-  const [recordingUrl, setRecordingUrl] = useState(""),
-    [recordingOffset, setRecordingOffset] = useState(0),
-    [barFocus, setBarFocus] = useState<number | null>(null),
-    [importText, setImportText] = useState(""),
-    [importErrors, setImportErrors] = useState<string[]>([]),
-    [latency, setLatency] = useState(0);
+    [environment, setEnvironment] = useState("待检查");
+  const [importText, setImportText] = useState(""),
+    [importErrors, setImportErrors] = useState<string[]>([]);
   const audio = useRef<LocalAudio | null>(null),
     gate = useRef(new TuningGate()),
-    run = useRef<Run | null>(null),
     pageRef = useRef<Page>("home");
-  const reportAudio = useRef<HTMLAudioElement>(null),
-    demoAudio = useRef<HTMLAudioElement | null>(null),
-    frameCounter = useRef(0),
+  const frameCounter = useRef(0),
     noise = useRef<number[]>([]),
     checkingUntil = useRef(0),
-    environmentOK = useRef(false),
-    previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
-    recordedBlob = useRef<Blob | null>(null),
-    playEnd = useRef<number | null>(null);
-  const finishRef = useRef<(c: boolean) => void>(() => {}),
-    pauseRef = useRef<(s: string) => void>(() => {}),
-    busy = useRef(false);
+    environmentOK = useRef(false);
   const sweepSession = useRef(new TuningSweep()),
     stopSweepRef = useRef<(reason?: string) => void>(() => {}),
     sweepWall = useRef(0);
@@ -166,7 +120,6 @@ export default function GuzhengApp() {
       setMessage("请先开启麦克风并完成环境检查。");
       return;
     }
-    stopPreview();
     gate.current = new TuningGate();
     sweepSession.current.start(audio.current!.time, sweepView.interval);
     // eslint-disable-next-line react-hooks/purity -- Timestamp is captured only in the start button event handler.
@@ -184,83 +137,41 @@ export default function GuzhengApp() {
     gate.current.select(i);
     setTuning({ index: i, passed: [...gate.current.passed] });
   }
-  const [liveEngine, setLiveEngine] = useState<PracticeEngine | undefined>();
-  const library = [...SCORES, ...custom],
-    timeline = makeTimeline(
-      score,
-      clamp(bpm, score.minBpm, score.maxBpm),
-      from,
-      to,
-    ),
-    active = stage === "playing" || stage === "countdown";
+  const library = [...SCORES, ...custom];
   function prepareReview() {
-    stopPreview();
     audio.current?.close();
     setMic(false);
     environmentOK.current = false;
-  }
-  function stopPreview() {
-    audio.current?.stopPreview();
-    demoAudio.current?.pause();
-    demoAudio.current = null;
-    if (previewTimer.current) clearTimeout(previewTimer.current);
-    setPreview(false);
-  }
-  function clearRecording() {
-    if (recordingUrl) URL.revokeObjectURL(recordingUrl);
-    setRecordingUrl("");
-    recordedBlob.current = null;
   }
   function navigate(p: Page) {
     if (sweepSession.current.active) {
       setMessage("请先停止巡检，再切换页面。");
       return;
     }
-    if (active || stage === "paused" || busy.current) {
-      setMessage("请先暂停或结束本次演奏。");
-      return;
-    }
-    stopPreview();
-    if (page === "report") clearRecording();
     pageRef.current = p;
     setPage(p);
     setMessage("");
   }
-  function select(
-    s: Score,
-    range?: {
-      from: number;
-      to: number;
-      bpm: number;
-    },
-  ) {
-    stopPreview();
+  function select(s: Score) {
     if (sweepSession.current.active) stopSweep();
-    setTuningHint(false);
-    clearRecording();
-    setReport(null);
+    prepareReview();
     setScore(s);
-    run.current = null;
-    setLiveEngine(undefined);
-    setStage("ready");
-    setElapsed(-10);
-    const saved = read<Record<string, number>>(SPEEDS, {});
-    setBpm(
-      clamp(
-        range?.bpm ?? (Number.isFinite(saved[s.id]) ? saved[s.id] : s.startBpm),
-        s.minBpm,
-        s.maxBpm,
-      ),
-    );
-    setFrom(range?.from ?? 1);
-    setTo(range?.to ?? s.order.length);
-    pageRef.current = "score";
-    setPage("score");
-    setMessage("");
+    setReport(null);
+    navigate("score");
+  }
+  function saveFollow(r: FollowRecord) {
+    setFollowRecords((prev) => {
+      const next = [r, ...prev];
+      try {
+        write(FOLLOW, next);
+      } catch {
+        setMessage("本机空间不足，带练记录未保存。");
+      }
+      return next;
+    });
   }
   async function prepare() {
     setOpening(true);
-    stopPreview();
     setMessage("");
     try {
       audio.current ??= new LocalAudio();
@@ -290,225 +201,14 @@ export default function GuzhengApp() {
       setOpening(false);
     }
   }
-  async function previewScore(measure?: number) {
-    if (active) return;
-    stopPreview();
-    try {
-      if (score.demo && score.review.status === "approved") {
-        const el = new Audio(score.demo.url);
-        demoAudio.current = el;
-        el.currentTime = score.demo.starts[(measure ?? from) - 1];
-        await el.play();
-        el.ontimeupdate = () => {
-          if (el.currentTime >= score.demo!.ends[(measure ?? to) - 1])
-            stopPreview();
-        };
-        el.onended = () => setPreview(false);
-        el.onerror = () => {
-          stopPreview();
-          setMessage("老师示范加载失败，请重试。");
-        };
-      } else {
-        audio.current ??= new LocalAudio();
-        const t = makeTimeline(score, bpm, measure ?? from, measure ?? to);
-        await audio.current.preview(t.events, t.duration);
-        previewTimer.current = setTimeout(
-          stopPreview,
-          (t.duration + 0.2) * 1000,
-        );
-      }
-      setPreview(true);
-    } catch {
-      setMessage("示范未能播放，请检查声音权限和网络后重试。");
-      setPreview(false);
-    }
-  }
-  async function finish(completed: boolean) {
-    const r = run.current;
-    if (!r || busy.current) return;
-    busy.current = true;
-    metronome.current.stop();
-    audio.current?.setAssessment(false);
-    r.stage = "paused";
-    setStage("ready");
-    if (completed) r.engine.tick(r.engine.timeline.duration + 1);
-    const result = r.engine.report(r.score, completed, r.demo);
-    result.mode = r.follow ? "follow" : "assessment";
-    if (r.follow) {
-      result.reasons.push("本次为跟练模式，未采集琴声，不生成评分。");
-      result.comment =
-        "已记录本次跟练。切换测音准模式并戴耳机，可检查音符和节奏。";
-      result.suggestions = [];
-    }
-    setReport(result);
-    setBarFocus(null);
-    setRecordingOffset(r.start - (audio.current?.recordingStart ?? r.start));
-    const blob = await audio.current?.stopRecording();
-    if (blob?.size) {
-      recordedBlob.current = blob;
-      setRecordingUrl(URL.createObjectURL(blob));
-    }
-    setRecords((prev) => {
-      const next = [result, ...prev].slice(0, 100);
-      try {
-        write(RECORDS, next);
-      } catch {
-        setMessage("本机空间不足，报告未保存，请导出报告。");
-      }
-      return next;
-    });
-    pageRef.current = "report";
-    setPage("report");
-    run.current = null;
-    busy.current = false;
-  }
-  function pause(reason = "已暂停；恢复会建立新的练习片段。") {
-    const r = run.current;
-    if (!r || r.stage === "paused") return;
-    metronome.current.stop();
-    audio.current?.setAssessment(false);
-    r.stage = "paused";
-    if (audio.current?.recorder?.state === "recording")
-      audio.current.recorder.pause();
-    r.engine.interrupted = true;
-    setStage("paused");
-    setMessage(reason);
-  }
-  /* eslint-disable react-hooks/purity -- These async transport handlers run only on button clicks; timestamps are session data, never render-time values. */
-  async function start() {
-    if (busy.current) return;
-    busy.current = true;
-    stopPreview();
-    clearRecording();
-    setMessage("");
-    try {
-      setTuningHint(false);
-      const follow = !demo && practiceMode === "follow";
-      if (follow) {
-        audio.current?.close();
-        setMic(false);
-        environmentOK.current = false;
-        checkingUntil.current = 0;
-      }
-      if (!demo && !follow) {
-        if (!mic || !environmentOK.current) {
-          if (!(await prepare())) return;
-          const deadline = performance.now() + 6000;
-          while (checkingUntil.current && performance.now() < deadline)
-            await new Promise((resolve) => setTimeout(resolve, 100));
-          if (!environmentOK.current) {
-            setMessage(
-              "采音尚未准备好，请保持安静后点击开始练习重试。无需完成逐弦校音。",
-            );
-            return;
-          }
-        }
-        await audio.current!.open();
-        await audio.current!.setAssessment(true);
-        if (!audio.current!.startRecording())
-          setMessage("此浏览器暂不能录音回听，实时练习仍可进行。");
-      }
-      await metronome.current.open(
-        demo || follow ? undefined : audio.current!.context!,
-      );
-      const t = makeTimeline(score, bpm, from, to),
-        now =
-          (demo || follow ? performance.now() / 1000 : audio.current!.time) +
-          0.12;
-      const engine = new PracticeEngine(t, {
-        pitchCents: judging === "gentle" ? 50 : 35,
-        timingFraction: judging === "gentle" ? 0.22 : 0.15,
-        minimumTimingMs: judging === "gentle" ? 110 : 65,
-        latencyMs: latency,
-      });
-      if (follow) engine.untrusted(-t.countIn, t.duration + 1);
-      metronome.current.start(
-        t,
-        score.meter[0],
-        demo || follow
-          ? metronome.current.context!.currentTime + 0.12 + t.countIn
-          : now + t.countIn,
-        clickTone,
-        clickVolume,
-      );
-      setLiveEngine(engine);
-      run.current = {
-        engine,
-        start: now + t.countIn,
-        demo,
-        next: 0,
-        score,
-        stage: "countdown",
-        lastFrame: now,
-        follow,
-        warnedLost: false,
-      };
-      setStage("countdown");
-      setElapsed(-t.countIn);
-      try {
-        write(SPEEDS, {
-          ...read<Record<string, number>>(SPEEDS, {}),
-          [score.id]: bpm,
-        });
-      } catch {
-        setMessage("速度偏好未能保存；不影响本次练习。");
-      }
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : "启动失败，请重新检查设备。");
-    } finally {
-      busy.current = false;
-    }
-  }
-  async function resume() {
-    const r = run.current;
-    if (!r) return;
-    busy.current = true;
-    const partial = r.engine.report(r.score, false, r.demo);
-    partial.mode = r.follow ? "follow" : "assessment";
-    const blob = await audio.current?.stopRecording();
-    if (blob?.size) {
-      recordedBlob.current = blob;
-      setRecordingUrl(URL.createObjectURL(blob));
-    }
-    setRecords((prev) => {
-      const next = [partial, ...prev].slice(0, 100);
-      try {
-        write(RECORDS, next);
-      } catch {
-        setMessage("暂停记录未保存");
-      }
-      return next;
-    });
-    run.current = null;
-    setLiveEngine(undefined);
-    setStage("ready");
-    setElapsed(-10);
-    busy.current = false;
-    setMessage(
-      "片段已结束。选择恢复小节和速度再开始；开始新片段前，可先保存暂停录音。",
-    );
-  }
-  /* eslint-enable react-hooks/purity */
-  function replay(measure: number) {
-    setBarFocus(measure);
-    const el = reportAudio.current;
-    if (!el || !report || !recordingUrl) {
-      setMessage("这条记录没有本次录音，可听参考音或直接重练。");
-      return;
-    }
-    const t = makeTimeline(score, report.bpm, report.from, report.to),
-      b = t.bars.find((x) => x.measure === measure);
-    if (!b) return;
-    stopPreview();
-    el.currentTime = Math.max(0, recordingOffset + b.start);
-    playEnd.current = recordingOffset + b.end;
-    void el.play().catch(() => setMessage("请点击录音播放器开始回听。"));
-  }
   function importScore() {
     try {
       const value = JSON.parse(importText),
         errors = validateScore(value);
-      if (library.some((s) => s.id === value.id && s.version === value.version))
+      if (
+        !errors.length &&
+        library.some((s) => s.id === value.id && s.version === value.version)
+      )
         errors.push("相同编号和版本已经存在，请更新版本号");
       setImportErrors(errors);
       if (errors.length) return;
@@ -517,7 +217,7 @@ export default function GuzhengApp() {
       setCustom(next);
       setImportText("");
       setMessage(
-        "曲谱已在本机导入，将按谱中时值、休止和变速判断节奏。请先预览核对谱子。",
+        "曲谱已在本机导入，可按谱播放。请点击预览核对音符、时值、休止与反复。",
       );
     } catch (e) {
       setImportErrors([
@@ -531,20 +231,20 @@ export default function GuzhengApp() {
     const s = sweepSession.current;
     return s.active ? (audio.current?.time ?? 0) - s.startTime : null;
   }, []);
-  const readPlayClock = useCallback(() => {
-    const r = run.current;
-    if (!r || r.stage === "paused") return null;
-    return (
-      (r.demo || r.follow
-        ? performance.now() / 1000
-        : (audio.current?.time ?? 0)) - r.start
-    );
-  }, []);
   useEffect(() => {
     queueMicrotask(() => {
       setInWechat(/MicroMessenger/i.test(navigator.userAgent));
       const rs = read<unknown>(RECORDS, []);
       setRecords(Array.isArray(rs) ? rs.filter(validRecord) : []);
+      const fs = read<FollowRecord[]>(FOLLOW, []);
+      setFollowRecords(
+        Array.isArray(fs)
+          ? fs.filter(
+              (r) =>
+                r && r.mode === "accompaniment" && typeof r.id === "string",
+            )
+          : [],
+      );
       const cs = read<unknown>(CUSTOM, []);
       setCustom(
         Array.isArray(cs)
@@ -552,7 +252,6 @@ export default function GuzhengApp() {
           : [],
       );
     });
-    const clickPlayer = metronome.current;
     const id = setInterval(() => {
       if (sweepSession.current.active) {
         if (performance.now() - sweepWall.current > 500) {
@@ -564,55 +263,15 @@ export default function GuzhengApp() {
           setSweepView(sweepSession.current.snapshot());
         }
       }
-      const r = run.current;
-      if (!r || r.stage === "paused") return;
-      const now =
-          r.demo || r.follow
-            ? performance.now() / 1000
-            : (audio.current?.time ?? 0),
-        t = now - r.start;
-      setElapsed(t);
-      if (t >= 0 && r.stage === "countdown") {
-        r.stage = "playing";
-        setStage("playing");
-      }
-      if (!r.demo && !r.follow && now - r.lastFrame > 0.4) {
-        pauseRef.current("采音已中断，已暂停。请重新检查麦克风。");
-        return;
-      }
-      if (t < 0) return;
-      if (r.demo) {
-        const notes = r.engine.timeline.events;
-        while (r.next < notes.length && notes[r.next].time <= t) {
-          const n = notes[r.next++];
-          if (n.midi !== null)
-            r.engine.consume({
-              at: n.time + (r.next % 7 === 0 ? 0.19 : 0),
-              midi: n.midi + (r.next % 11 === 0 ? 2 : 0),
-              confidence: 0.96,
-            });
-        }
-      }
-      r.engine.tick(t);
-      if (r.engine.lost && !r.follow && !r.warnedLost) {
-        r.warnedLost = true;
-        setMessage(
-          "暂时未能跟上演奏位置，曲谱和节拍继续。当前不确定部分不判错，请按光标继续，也可手动暂停重练。",
-        );
-      }
-      if (t >= r.engine.timeline.duration + 1) finishRef.current(true);
     }, 50);
     const hidden = () => {
       if (document.hidden && sweepSession.current.active)
         stopSweepRef.current(
           "页面进入后台，巡检已停止。返回后请重新检查麦克风。",
         );
-      if (document.hidden)
-        pauseRef.current("页面进入后台，已暂停，返回后重新检查麦克风。");
     };
     document.addEventListener("visibilitychange", hidden);
     return () => {
-      clickPlayer.stop();
       clearInterval(id);
       document.removeEventListener("visibilitychange", hidden);
       void audio.current?.stopRecording();
@@ -624,26 +283,17 @@ export default function GuzhengApp() {
   }, [page, score.id, score.version]);
   useEffect(() => {
     stopSweepRef.current = stopSweep;
-    finishRef.current = finish;
-    pauseRef.current = pause;
     pageRef.current = page;
   });
   useEffect(() => {
     if (!audio.current) return;
-    audio.current.onInterrupted = (reason) => {
+    audio.current.onInterrupted = () => {
       if (sweepSession.current.active)
         stopSweepRef.current("音频输入中断，巡检已停止。");
       setMic(false);
-      pauseRef.current(
-        reason
-          ? `识别已暂停：${reason}。请重新开始练习。`
-          : "音频输入已中断，请重新检查麦克风。",
-      );
     };
     audio.current.onFrame = (f: Frame) => {
-      const r = run.current;
-      if (r) r.lastFrame = f.time;
-      if (f.assessment || (frameCounter.current++ % 5 === 0 && !r)) setFrame(f);
+      if (frameCounter.current++ % 5 === 0) setFrame(f);
       if (checkingUntil.current) {
         noise.current.push(f.rms);
         if (f.time >= checkingUntil.current) {
@@ -659,7 +309,6 @@ export default function GuzhengApp() {
         }
         return;
       }
-      if (preview) return;
       if (
         pageRef.current === "tune" &&
         environmentOK.current &&
@@ -714,42 +363,6 @@ export default function GuzhengApp() {
             setMessage("21根弦已完成校音，可以开始练习。");
         }
       }
-      if (!r || r.demo || !["playing", "countdown"].includes(r.stage)) return;
-      if (r.follow) return;
-      if (!f.assessment) {
-        if (f.peak > 0.98)
-          r.engine.untrusted(f.time - r.start - 0.1, f.time - r.start + 0.1);
-        return;
-      }
-      const time = f.time - r.start;
-      if (time < -0.44) return;
-      if (
-        f.peak > 0.98 ||
-        (f.rms > 0.025 && (f.midi === null || f.confidence < 0.8))
-      )
-        r.engine.untrusted(time - 0.1, time + 0.1);
-      if (f.attack !== null) {
-        r.engine.consume({
-          at: f.attack - r.start,
-          midi: f.peak > 0.98 ? null : f.midi,
-          confidence: f.confidence,
-          evidence: f.peak > 0.98 ? undefined : f.evidence,
-        });
-        const recent = [...r.engine.results.values()]
-          .filter((e) => e.pitch !== undefined && e.actual !== undefined)
-          .slice(-5);
-        const offsets = recent.map((e) => {
-          const target = r.engine.timeline.events.find(
-            (n) => n.key === e.key,
-          )?.midi;
-          return target == null ? 0 : (e.actual! - target) * 100;
-        });
-        if (
-          offsets.filter((c) => c > 35 && c < 100).length >= 3 ||
-          offsets.filter((c) => c < -35 && c > -100).length >= 3
-        )
-          setTuningHint(true);
-      }
     };
   });
   const tuningReading = tuneMode === "fine" ? fineFrame : frame;
@@ -758,28 +371,9 @@ export default function GuzhengApp() {
       fineFrame?.midi !== null && fineFrame?.midi !== undefined
         ? (fineFrame.midi - STRINGS[tuning.index]) * 100
         : null;
-  const reportTimeline = report
-    ? makeTimeline(score, report.bpm, report.from, report.to)
-    : timeline;
-  const previous = report
-    ? records.find(
-        (r) =>
-          r.id !== report.id &&
-          !r.demo &&
-          !report.demo &&
-          r.scoreId === report.scoreId &&
-          r.scoreVersion === report.scoreVersion &&
-          r.ruleVersion === report.ruleVersion &&
-          JSON.stringify(r.judging) === JSON.stringify(report.judging) &&
-          r.bpm === report.bpm &&
-          r.from === report.from &&
-          r.to === report.to &&
-          r.total !== null,
-      )
-    : null;
   return (
     <div
-      className={`app-shell v-app ${active ? "v-performing" : ""} ${page === "tune" && tuneMode === "fine" ? "compact-fine" : ""} ${tuningHelp ? "show-tuning-help" : ""}`}
+      className={`app-shell v-app  ${page === "tune" && tuneMode === "fine" ? "compact-fine" : ""} ${tuningHelp ? "show-tuning-help" : ""}`}
     >
       <header className="topbar">
         <button
@@ -891,17 +485,14 @@ export default function GuzhengApp() {
               </div>
             </section>
             <div className="v-path">
-              {[
-                "校音准备",
-                "选择曲目与速度",
-                "边弹边看反馈",
-                "评分与练习建议",
-              ].map((s, i) => (
-                <div key={s}>
-                  <b>0{i + 1}</b>
-                  <span>{s}</span>
-                </div>
-              ))}
+              {["校音准备", "选择曲目与速度", "听示范跟着弹", "分段慢练"].map(
+                (s, i) => (
+                  <div key={s}>
+                    <b>0{i + 1}</b>
+                    <span>{s}</span>
+                  </div>
+                ),
+              )}
             </div>
             <section id="library">
               <div className="v-section-title">
@@ -912,7 +503,8 @@ export default function GuzhengApp() {
                 <span>{library.length} 个练习单元</span>
               </div>
               <p className="v-note-text">
-                内置素材为原创试练稿，待老师审核。识别和评分处于试验阶段，尚未通过真实古筝与移动设备验收。
+                内置曲谱含原创试练稿与手工录入谱，待老师审核。选择曲目即可按谱带练，也可导入结构化
+                JSON 曲谱。
               </p>
               <div className="v-library">
                 {library.map((s, i) => (
@@ -931,15 +523,7 @@ export default function GuzhengApp() {
                       <h3>{s.title}</h3>
                       <p>{s.focus}</p>
                       <div className="v-chips">
-                        <span>
-                          {s.bars.some((b) =>
-                            b.notes.some(
-                              (n) => n.midi !== null && (!n.pitch || !n.rhythm),
-                            ),
-                          )
-                            ? "部分段落评分"
-                            : "基础音符评分"}
-                        </span>
+                        <span>按谱带练</span>
                         <span>
                           {s.review.status === "approved"
                             ? "老师已审核"
@@ -961,16 +545,10 @@ export default function GuzhengApp() {
         )}
         {["tune", "score", "report"].includes(page) && (
           <div className="v-steps">
-            {["校音准备", "选曲与速度", "实时陪练", "演奏反馈"].map((s, i) => (
+            {["可选校音", "选曲与速度", "按谱带练", "分段慢练"].map((s, i) => (
               <span
                 className={
-                  (page === "tune"
-                    ? 0
-                    : page === "report"
-                      ? 3
-                      : active
-                        ? 2
-                        : 1) === i
+                  (page === "tune" ? 0 : page === "report" ? 3 : 1) === i
                     ? "active"
                     : ""
                 }
@@ -1262,686 +840,71 @@ export default function GuzhengApp() {
           </section>
         )}
         {page === "score" && (
-          <>
-            <div className="v-section-title">
-              <div>
-                <span className="eyebrow">
-                  {score.review.status === "approved"
-                    ? `审核：${score.review.reviewer}`
-                    : "试练曲谱 · 待老师审核"}
-                </span>
-                <h1>
-                  {active ? "专注眼前这一句。" : "用自己的速度，弹稳这一曲。"}
-                </h1>
-              </div>
-              <button
-                className="secondary-button"
-                disabled={active}
-                onClick={() => navigate("home")}
-              >
-                换一首
-              </button>
-            </div>
-            {demo && (
-              <div className="v-demo-banner">
-                模拟演奏演示 · 不使用麦克风 · 不代表真实识别效果 ·
-                报告与真实记录分开
-              </div>
-            )}
-            <fieldset
-              className="practice-mode-picker"
-              disabled={active || stage === "paused" || opening}
-            >
-              <legend>选择练习模式</legend>
-              <label>
-                <input
-                  type="radio"
-                  name="practice-mode"
-                  value="follow"
-                  checked={practiceMode === "follow"}
-                  onChange={() => {
-                    setPracticeMode("follow");
-                    setDemo(false);
-                  }}
-                />
-                <b>跟练模式</b>
-                <span>动态曲谱＋节拍器，不录音、不评分</span>
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="practice-mode"
-                  value="assessment"
-                  checked={practiceMode === "assessment"}
-                  onChange={() => {
-                    setPracticeMode("assessment");
-                    setDemo(false);
-                  }}
-                />
-                <b>测音准模式</b>
-                <span>戴耳机，检测音符与节奏，结束后查看评分</span>
-              </label>
-            </fieldset>
-            {practiceMode === "assessment" && (
-              <p>
-                新起音判音试用：适用于D调空弦单音拨奏；撮、摇指及快速连音请用跟练模式。不确定的起音标为未判断，真琴效果仍需复核。
-              </p>
-            )}
-            <div className="v-practice-layout">
-              <Sheet
-                score={score}
-                timeline={liveEngine?.timeline ?? timeline}
-                engine={
-                  practiceMode === "follow" && !demo ? undefined : liveEngine
-                }
-                elapsed={elapsed}
-                clock={readPlayClock}
-              />
-              <aside className="v-config">
-                <span className="eyebrow">本次练习</span>
-                <label>
-                  基础速度 <span>♩ / 分钟</span>
-                  <div className="v-number">
-                    <button
-                      disabled={active}
-                      onClick={() =>
-                        setBpm((v) => clamp(v - 1, score.minBpm, score.maxBpm))
-                      }
-                    >
-                      −
-                    </button>
-                    <input
-                      aria-label="基础速度"
-                      type="number"
-                      min={score.minBpm}
-                      max={score.maxBpm}
-                      disabled={active}
-                      value={bpm}
-                      onChange={(e) =>
-                        setBpm(
-                          clamp(
-                            Number(e.target.value) || score.minBpm,
-                            score.minBpm,
-                            score.maxBpm,
-                          ),
-                        )
-                      }
-                    />
-                    <button
-                      disabled={active}
-                      onClick={() =>
-                        setBpm((v) => clamp(v + 1, score.minBpm, score.maxBpm))
-                      }
-                    >
-                      ＋
-                    </button>
-                  </div>
-                </label>
-                <input
-                  aria-label="速度滑块"
-                  type="range"
-                  disabled={active}
-                  min={score.minBpm}
-                  max={score.maxBpm}
-                  value={bpm}
-                  onChange={(e) => setBpm(+e.target.value)}
-                />
-                <small>
-                  参考 {score.bpm} · 试验范围 {score.minBpm}–{score.maxBpm}
-                </small>
-                <label>
-                  练习范围
-                  <div className="v-range">
-                    <select
-                      aria-label="起始小节"
-                      disabled={active}
-                      value={from}
-                      onChange={(e) => {
-                        setFrom(+e.target.value);
-                        setTo((v) => Math.max(v, +e.target.value));
-                      }}
-                    >
-                      {score.order.map((_, i) => (
-                        <option key={i} value={i + 1}>
-                          第 {i + 1} 小节
-                        </option>
-                      ))}
-                    </select>
-                    <span>至</span>
-                    <select
-                      aria-label="结束小节"
-                      disabled={active}
-                      value={to}
-                      onChange={(e) => setTo(+e.target.value)}
-                    >
-                      {score.order.map(
-                        (_, i) =>
-                          i + 1 >= from && (
-                            <option key={i} value={i + 1}>
-                              第 {i + 1} 小节
-                            </option>
-                          ),
-                      )}
-                    </select>
-                  </div>
-                </label>
-                <p>
-                  {score.tempo.length > 1
-                    ? "本曲有速度变化，调整基础速度后保留快慢比例。"
-                    : "以设定速度判断；慢练不会因为未达原速扣分。"}
-                </p>
-                <button
-                  className="secondary-button"
-                  disabled={active}
-                  onClick={() => (preview ? stopPreview() : previewScore())}
-                >
-                  {preview
-                    ? "停止播放"
-                    : score.demo && score.review.status === "approved"
-                      ? "听老师示范"
-                      : "听合成参考音"}
-                </button>
-                <small>
-                  {score.demo
-                    ? ""
-                    : "合成音仅用于识谱，不代表老师示范或古筝音色。"}
-                </small>
-                {!active && (
-                  <label className="v-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={demo}
-                      onChange={(e) => setDemo(e.target.checked)}
-                    />{" "}
-                    无琴体验 · 模拟演奏
-                  </label>
-                )}
-                {!demo && practiceMode === "assessment" && !completedTuning && (
-                  <button
-                    className="text-button"
-                    disabled={active || stage === "paused"}
-                    onClick={() => navigate("tune")}
-                  >
-                    可选：去校音 →
-                  </button>
-                )}
-                <fieldset
-                  className="metronome-settings"
-                  disabled={active || opening}
-                >
-                  <legend>声音节拍器 · 全程跟拍</legend>
-                  <label>
-                    节拍音色
-                    <select
-                      aria-label="节拍音色"
-                      value={clickTone}
-                      onChange={(e) =>
-                        setClickTone(e.target.value as ClickTone)
-                      }
-                    >
-                      <option value="wood">木鱼</option>
-                      <option value="soft">柔和滴声</option>
-                      <option value="digital">电子滴声</option>
-                    </select>
-                  </label>
-                  <label>
-                    节拍音量
-                    <input
-                      aria-label="节拍音量"
-                      type="range"
-                      min="0.1"
-                      max="1"
-                      step="0.1"
-                      value={clickVolume}
-                      onChange={(e) => setClickVolume(Number(e.target.value))}
-                    />
-                  </label>
-                  <small>
-                    {practiceMode === "assessment"
-                      ? "请先戴好耳机，让节拍声从耳机输出；手机麦克风采集琴声。建议有线耳机，避免漏音；录音仅保存在本机。"
-                      : "直接跟着光标和节拍练习，不需要开启麦克风。"}
-                  </small>
-                </fieldset>
-                {practiceMode === "assessment" && (
-                  <label>
-                    判定宽容度
-                    <select
-                      aria-label="判定宽容度"
-                      value={judging}
-                      disabled={active || opening}
-                      onChange={(e) =>
-                        setJudging(e.target.value as "gentle" | "standard")
-                      }
-                    >
-                      <option value="gentle">宽松（默认）</option>
-                      <option value="standard">标准</option>
-                    </select>
-                    <small>
-                      宽松允许较小的音高与进入时间偏差，不改变目标速度。识别不确定时不判错。
-                    </small>
-                  </label>
-                )}
-                <details>
-                  <summary>采音时差校正</summary>
-                  <p>
-                    仅填写实测输入时差。默认0；设备尚未实测，试算节奏分仅供参考。
-                  </p>
-                  <input
-                    aria-label="采音时差毫秒"
-                    type="number"
-                    disabled={active}
-                    min={0}
-                    max={500}
-                    value={latency}
-                    onChange={(e) => setLatency(clamp(+e.target.value, 0, 500))}
-                  />{" "}
-                  毫秒
-                </details>
-              </aside>
-            </div>
-            {stage === "ready" && recordingUrl && (
-              <div className="v-demo-banner">
-                开始新片段将释放上一段临时录音。
-                <button
-                  className="text-button"
-                  onClick={() =>
-                    recordedBlob.current &&
-                    download(
-                      recordedBlob.current,
-                      `暂停录音.${recordedBlob.current.type.includes("mp4") ? "m4a" : "webm"}`,
-                    )
-                  }
-                >
-                  保存暂停录音 ↓
-                </button>
-              </div>
-            )}
-            {tuningHint && (
-              <div className="v-demo-banner" role="note">
-                多次听到音高偏差，可能是琴弦音不准，建议去校音；也请检查是否拨对弦。可以继续练习。
-                <button
-                  className="text-button"
-                  onClick={async () => {
-                    if (active) pause("已暂停，可先检查琴弦音准。");
-                    if (run.current) await finish(false);
-                    pageRef.current = "tune";
-                    setPage("tune");
-                  }}
-                >
-                  去校音（结束并保留本段） →
-                </button>
-              </div>
-            )}
-            <div className="v-transport">
-              <div className="v-beats">
-                {Array.from({ length: score.meter[0] }, (_, i) => {
-                  const t = liveEngine?.timeline ?? timeline,
-                    count =
-                      elapsed < 0
-                        ? Math.floor(
-                            (elapsed + t.countIn) /
-                              (t.countIn / score.meter[0]),
-                          )
-                        : t.beats.filter((b) => b <= elapsed).length - 1;
-                  return (
-                    <i
-                      key={i}
-                      className={
-                        active && count % score.meter[0] === i ? "active" : ""
-                      }
-                    >
-                      {i + 1}
-                    </i>
-                  );
-                })}
-              </div>
-              <div className="v-live" aria-live="polite">
-                {stage === "countdown"
-                  ? `预备拍 · ${Math.max(1, Math.ceil(-elapsed / (timeline.countIn / score.meter[0])))}`
-                  : stage === "playing"
-                    ? practiceMode === "follow" && !demo
-                      ? "正在跟拍 · 不采音、不评分"
-                      : `正在听 · ${demo ? "模拟" : frame?.midi ? noteName(frame.midi) : "等待琴声"}`
-                    : stage === "paused"
-                      ? "已暂停"
-                      : completedTuning
-                        ? "校音已完成"
-                        : "准备开始"}
-                <small>声音节拍 · 一小节预备拍 · 首拍重音</small>
-              </div>
-              <div className="v-actions">
-                {stage === "ready" && (
-                  <button
-                    className="primary-button"
-                    disabled={opening}
-                    onClick={() => void start()}
-                  >
-                    {opening ? "正在准备麦克风…" : "▶ 开始练习"}
-                  </button>
-                )}
-                {active && (
-                  <button className="secondary-button" onClick={() => pause()}>
-                    暂停
-                  </button>
-                )}
-                {stage === "paused" && (
-                  <button
-                    className="secondary-button"
-                    onClick={() => void resume()}
-                  >
-                    设置恢复小节
-                  </button>
-                )}
-                {stage !== "ready" && (
-                  <button
-                    className="primary-button"
-                    onClick={() => finish(false)}
-                  >
-                    结束并查看
-                  </button>
-                )}
-              </div>
-            </div>
-          </>
+          <AccompanimentPanel
+            key={`${score.id}:${score.version}`}
+            score={score}
+            onRecord={saveFollow}
+          />
         )}
-        {page === "report" && report?.mode === "follow" && (
+        {page === "report" && report && (
           <section className="v-sheet">
-            <h1>{report.completed ? "跟练完成" : "已保存本段跟练"}</h1>
-            <h2>{report.title}</h2>
+            <h1>{report.title} · 历史记录</h1>
             <p>
-              第 {report.from}—{report.to} 小节 · {report.bpm} 拍/分钟
+              {date(report.createdAt)} · 第 {report.from}–{report.to} 小节 ·{" "}
+              {report.bpm} 拍/分钟
             </p>
-            <p>本次未采集琴声，不评价音准或节奏，也不生成分数。</p>
-            <button className="primary-button" onClick={() => select(score)}>
-              再练一次 →
+            <p>
+              旧记录原数据仍保存在本机。当前版本已取消节奏与综合成绩，历史成绩和演奏建议不再展示。
+            </p>
+            <p>
+              音高检测原始结果：
+              {report.evaluations.filter((e) => e.pitch === true).length}{" "}
+              个音高匹配，
+              {report.evaluations.filter((e) => e.pitch === false).length}{" "}
+              个音高不匹配。旧算法结果仅供回看，不代表实琴准确率。
+            </p>
+            <button className="secondary-button" onClick={() => select(score)}>
+              按谱带练 →
             </button>
             <button
-              className="secondary-button"
-              onClick={() => {
-                setPracticeMode("assessment");
-                select(score);
-              }}
+              className="text-button"
+              onClick={() =>
+                download(
+                  new Blob(
+                    [
+                      JSON.stringify(
+                        {
+                          id: report.id,
+                          title: report.title,
+                          createdAt: report.createdAt,
+                          scoreId: report.scoreId,
+                          scoreVersion: report.scoreVersion,
+                          from: report.from,
+                          to: report.to,
+                          bpm: report.bpm,
+                          completed: report.completed,
+                          recognition: report.recognition,
+                          evaluations: report.evaluations.map((e) => ({
+                            key: e.key,
+                            measure: e.measure,
+                            pitch: e.pitch,
+                            actual: e.actual,
+                            at: e.at,
+                          })),
+                        },
+                        null,
+                        2,
+                      ),
+                    ],
+                    { type: "application/json" },
+                  ),
+                  `历史音高记录-${report.id}.json`,
+                )
+              }
             >
-              戴耳机，测音准 →
+              导出音高记录 ↓
             </button>
           </section>
-        )}
-        {page === "report" && report && report.mode !== "follow" && (
-          <>
-            <div className="v-section-title">
-              <div>
-                <span className="eyebrow">
-                  {report.demo ? "模拟报告" : "试验评分 · 尚未完成实琴验收"}
-                </span>
-                <h1>每一次练习，都听见进步。</h1>
-                <p>
-                  {report.title} · 第{report.from}–{report.to}小节 ·{" "}
-                  {report.bpm}拍 ·{" "}
-                  {report.completed ? "完整完成" : "未完成片段"}
-                </p>
-              </div>
-              <button
-                className="secondary-button"
-                onClick={() => select(score)}
-              >
-                再练一次
-              </button>
-            </div>
-            <div className="v-report-grid">
-              <div className="v-total">
-                <span>{report.demo ? "模拟总分" : "本次试算总分"}</span>
-                <strong>{report.total ?? "—"}</strong>
-                <small>
-                  {report.total === null
-                    ? "本次不生成总分"
-                    : "音符60% ＋ 节奏40%"}
-                </small>
-                {previous && report.total !== null && (
-                  <p>同范围同速度上次 {previous.total} 分</p>
-                )}
-              </div>
-              <div className="v-analysis">
-                <div className="v-sub-scores">
-                  <div>
-                    <b>
-                      {canAssessReport(report)
-                        ? (report.pitchScore ?? "—")
-                        : "—"}
-                    </b>
-                    <span>音符准确</span>
-                  </div>
-                  <div>
-                    <b>
-                      {canAssessReport(report)
-                        ? (report.rhythmScore ?? "—")
-                        : "—"}
-                    </b>
-                    <span>节奏准确</span>
-                  </div>
-                  <div>
-                    <b>{report.bpm}</b>
-                    <span>本次基础速度</span>
-                  </div>
-                </div>
-                <p>
-                  {canAssessReport(report)
-                    ? report.comment
-                    : "本次识别信息不足，暂不评价音符与节奏，也不生成针对演奏的纠错建议。未判断不代表弹错。"}
-                </p>
-                <small>
-                  可评分范围：音高 {pct(report.pitchSupport)} / 节奏{" "}
-                  {pct(report.rhythmSupport)}
-                  <br />
-                  可靠判断覆盖：音高 {pct(report.pitchCoverage)} / 节奏{" "}
-                  {pct(report.rhythmCoverage)}
-                </small>
-                {!!report.recognition?.length && (
-                  <p className="v-muted">
-                    乐谱顺序辅助确认{" "}
-                    {
-                      report.recognition.filter(
-                        (n) => n.kind === "score-context",
-                      ).length
-                    }{" "}
-                    次； 排除疑似余音/泛音{" "}
-                    {
-                      report.recognition.filter((n) => n.kind === "ringing")
-                        .length
-                    }{" "}
-                    次； 未判断{" "}
-                    {
-                      report.recognition.filter((n) => n.kind === "uncertain")
-                        .length
-                    }{" "}
-                    次。 导出报告可查看原始候选和判断依据。
-                  </p>
-                )}
-                {report.reasons.length > 0 && (
-                  <ul>
-                    {report.reasons.map((x) => (
-                      <li key={x}>{x}</li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-            <div className="v-section-title">
-              <h2>接下来，练好这几处</h2>
-              <button
-                className="text-button"
-                onClick={() =>
-                  download(
-                    new Blob([JSON.stringify(report, null, 2)], {
-                      type: "application/json",
-                    }),
-                    `练习报告-${report.id}.json`,
-                  )
-                }
-              >
-                导出报告 ↓
-              </button>
-            </div>
-            {canAssessReport(report) &&
-              report.evaluations.some(
-                (e) => e.rhythm !== undefined && e.rhythm < 1,
-              ) && (
-                <details className="v-recording" open>
-                  <summary>逐音节奏问题</summary>
-                  <ul>
-                    {reportTimeline.events
-                      .filter((n) => n.midi !== null)
-                      .map((n, i) => {
-                        const e = report.evaluations.find(
-                          (v) => v.key === n.key,
-                        );
-                        if (!e || e.rhythm === undefined || e.rhythm === 1)
-                          return null;
-                        return (
-                          <li key={n.key}>
-                            第 {i + 1} 个音 · 第 {n.measure} 小节 ·{" "}
-                            {noteName(n.midi!)}：
-                            {e.pitch === true
-                              ? "音高正确；"
-                              : e.pitch === false
-                                ? "音高需调整；"
-                                : ""}
-                            {timingLabel(e)}
-                          </li>
-                        );
-                      })}
-                  </ul>
-                </details>
-              )}
-            <div className="v-suggestions">
-              {canAssessReport(report) && report.suggestions.length ? (
-                report.suggestions.map((s, i) => (
-                  <article key={s.measure}>
-                    <span>0{i + 1}</span>
-                    <div>
-                      <h3>第 {s.measure} 小节</h3>
-                      <p>{s.text}</p>
-                      <small>
-                        建议 {s.bpm} 拍 · 第{s.from}–{s.to}小节
-                      </small>
-                    </div>
-                    <button
-                      className="secondary-button"
-                      onClick={() => select(score, s)}
-                    >
-                      重练这里 →
-                    </button>
-                  </article>
-                ))
-              ) : (
-                <p>
-                  {report.total === null
-                    ? "先检查采音或重新完整弹奏，收集足够信息后再提供建议。"
-                    : "支持范围内没有明显问题，可以继续保持这个速度练习。"}
-                </p>
-              )}
-            </div>
-            <Sheet
-              score={score}
-              timeline={reportTimeline}
-              report={report}
-              onBar={replay}
-            />
-            {barFocus !== null && (
-              <div className="v-actions">
-                <span>第 {barFocus} 小节</span>
-                <button
-                  className="secondary-button"
-                  onClick={() => previewScore(barFocus)}
-                >
-                  {score.demo ? "听示范" : "听合成参考音"}
-                </button>
-                <button
-                  className="text-button"
-                  onClick={() =>
-                    select(score, {
-                      from: Math.max(1, barFocus - 1),
-                      to: Math.min(score.order.length, barFocus + 1),
-                      bpm: Math.max(
-                        score.minBpm,
-                        Math.round(report.bpm * 0.85),
-                      ),
-                    })
-                  }
-                >
-                  重练片段
-                </button>
-              </div>
-            )}
-            <div className="v-recording">
-              <h3>本次录音</h3>
-              <ReviewTrial
-                scores={[...SCORES, ...custom]}
-                onOpen={prepareReview}
-                getRecording={() => recordedBlob.current}
-              />
-              {recordingUrl ? (
-                <>
-                  <audio
-                    ref={reportAudio}
-                    controls
-                    src={recordingUrl}
-                    onPlay={stopPreview}
-                    onTimeUpdate={() => {
-                      if (
-                        playEnd.current !== null &&
-                        reportAudio.current &&
-                        reportAudio.current.currentTime >= playEnd.current
-                      ) {
-                        reportAudio.current.pause();
-                        playEnd.current = null;
-                      }
-                    }}
-                  />
-                  <button
-                    className="secondary-button"
-                    onClick={() =>
-                      recordedBlob.current &&
-                      download(
-                        recordedBlob.current,
-                        `古筝练习-${report.id}.${recordedBlob.current.type.includes("mp4") ? "m4a" : "webm"}`,
-                      )
-                    }
-                  >
-                    保存录音到本机 ↓
-                  </button>
-                  <p>离开本页后录音将释放，需要保留请先下载。</p>
-                </>
-              ) : (
-                <p>
-                  {report.demo
-                    ? "模拟模式不产生录音。"
-                    : "此历史记录不含录音，或浏览器不支持录音。"}
-                </p>
-              )}
-            </div>
-            <details className="v-speed-table">
-              <summary>查看逐小节速度表现（不重复扣分）</summary>
-              <table>
-                <thead>
-                  <tr>
-                    <th>小节</th>
-                    <th>目标平均速度</th>
-                    <th>实际估计</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.speeds.map((s) => (
-                    <tr key={s.measure}>
-                      <td>{s.measure}</td>
-                      <td>{s.target}</td>
-                      <td>{s.actual ?? "数据不足"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <p>以可匹配起音间隔估计，仅用于定位趋势；信息不足片段不估计。</p>
-            </details>
-          </>
         )}
         {page === "history" && (
           <>
@@ -1957,7 +920,9 @@ export default function GuzhengApp() {
                     confirm("删除本机全部练习记录？已下载的录音不会被删除。")
                   ) {
                     localStorage.removeItem(RECORDS);
+                    localStorage.removeItem(FOLLOW);
                     setRecords([]);
+                    setFollowRecords([]);
                   }
                 }}
               >
@@ -1965,9 +930,9 @@ export default function GuzhengApp() {
               </button>
             </div>
             <p>
-              报告保存在当前浏览器；清理网站数据会丢失记录。仅比较同曲谱版本、同范围、同速度的成绩。
+              记录保存在当前浏览器；清理网站数据会丢失记录。带练只记录曲目、范围、速度与完成状态。
             </p>
-            {!records.length && (
+            {!records.length && !followRecords.length && (
               <div className="v-empty">
                 还没有练习记录。
                 <button
@@ -1979,6 +944,31 @@ export default function GuzhengApp() {
               </div>
             )}
             <div className="v-history">
+              {followRecords.map((r) => (
+                <article key={r.id}>
+                  <div>
+                    <small>{date(r.createdAt)} · 按谱带练</small>
+                    <h3>{r.title}</h3>
+                    <p>
+                      第 {r.from}–{r.to} 小节 · {r.bpm} 拍 ·{" "}
+                      {r.completed ? "完整播放" : "播放片段"}
+                    </p>
+                  </div>
+                  <button
+                    className="secondary-button"
+                    onClick={() => {
+                      const s = library.find(
+                        (s) =>
+                          s.id === r.scoreId && s.version === r.scoreVersion,
+                      );
+                      if (s) select(s);
+                      else setMessage("请先导入对应版本曲谱。");
+                    }}
+                  >
+                    再带练
+                  </button>
+                </article>
+              ))}
               {records.map((r) => (
                 <article key={r.id}>
                   <div>
@@ -1988,7 +978,7 @@ export default function GuzhengApp() {
                         ? "模拟演示"
                         : r.mode === "follow"
                           ? "跟练记录 · 未采音"
-                          : "测音准 · 试验评分"}
+                          : "旧版音高记录"}
                     </small>
                     <h3>{r.title}</h3>
                     <p>
@@ -1996,10 +986,6 @@ export default function GuzhengApp() {
                       {r.completed ? "完整完成" : "未完成"}
                     </p>
                   </div>
-                  <strong>
-                    {r.total ?? "—"}
-                    <small>分</small>
-                  </strong>
                   <button
                     className="secondary-button"
                     onClick={() => {
@@ -2011,13 +997,8 @@ export default function GuzhengApp() {
                         setMessage("对应版本曲谱不在本机，请先导入原版本。");
                         return;
                       }
-                      clearRecording();
                       setScore(s);
-                      setFrom(r.from);
-                      setTo(r.to);
-                      setBpm(r.bpm);
                       setReport(r);
-                      setBarFocus(null);
                       navigate("report");
                     }}
                   >
@@ -2053,9 +1034,30 @@ export default function GuzhengApp() {
                 className="secondary-button"
                 onClick={() =>
                   download(
-                    new Blob([JSON.stringify(SCORES[0], null, 2)], {
-                      type: "application/json",
-                    }),
+                    new Blob(
+                      [
+                        JSON.stringify(
+                          {
+                            ...SCORES[0],
+                            bars: SCORES[0].bars.map((b) => ({
+                              ...b,
+                              notes: b.notes.map((n) => ({
+                                id: n.id,
+                                midi: n.midi,
+                                beat: n.beat,
+                                duration: n.duration,
+                                technique: n.technique,
+                              })),
+                            })),
+                          },
+                          null,
+                          2,
+                        ),
+                      ],
+                      {
+                        type: "application/json",
+                      },
+                    ),
                     "曲谱导入模板.json",
                   )
                 }
@@ -2064,7 +1066,8 @@ export default function GuzhengApp() {
               </button>
             </div>
             <p>
-              用于我们整理和预览曲谱，不是学员拍照识谱。审核状态须由实际审核老师填写；示范需要授权信息和起止时间。
+              导入结构化 JSON
+              曲谱，预览核对后可直接按谱带练。暂不支持图片自动识谱；图片谱需要先人工录入音符和时值。审核信息须由实际审核老师填写。
             </p>
             <div className="v-import">
               <label>
@@ -2139,9 +1142,7 @@ export default function GuzhengApp() {
             <details>
               <summary>当前能力与验收状态</summary>
               <p>
-                规则版本 {RULE_VERSION}
-                。本地Pitchy /
-                MPM音高与音头检测仍待真琴验证。声音节拍器在完成播放干扰实测前不开放；当前仅提供视觉节拍。首批曲谱、速度范围、误报率与输入时差均待老师和真实设备验收。
+                乐曲练习使用本机古筝拨弦合成音色，不申请麦克风、不自动评判节奏。校音和录音复核保留音高检测。音色和移动设备实际效果仍需试用核对。
               </p>
               <p>
                 推荐 Safari /
@@ -2155,7 +1156,7 @@ export default function GuzhengApp() {
       <footer className="v-footer">
         <span>知音 · 数字生命 King</span>
         <span>先调准，再练稳。</span>
-        <span>试用版 V0.10.0</span>
+        <span>试用版 V0.11.0</span>
       </footer>
     </div>
   );

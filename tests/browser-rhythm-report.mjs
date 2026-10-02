@@ -1,7 +1,7 @@
 // Synthetic report fixture; no user recording or annotation is sent to the browser/site.
 import { chromium } from "playwright";
 import assert from "node:assert/strict";
-import { PracticeEngine, makeTimeline } from "../lib/practice-core.ts";
+import { PracticeEngine, makeTimeline } from "./legacy/practice-core.ts";
 import { SCORES } from "../lib/scores.ts";
 const score = SCORES.find((s) => s.id === "daily-rhythm-2");
 const t = makeTimeline(score, 70);

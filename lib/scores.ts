@@ -119,7 +119,7 @@ export const SCORES: Score[] = [
     "3 5 6 1+",
     "6 5 1:2",
   ]),
-  make("technique", "听风", "技法段落与评分边界", [
+  make("technique", "听风", "技法段落与单音示范", [
     "1 2 3 5",
     "6:4:tremolo",
     "5 3 2 1",

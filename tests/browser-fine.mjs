@@ -39,7 +39,7 @@ await page.addInitScript(() => {
 try {
   await page.goto(
     process.env.TEST_BASE_URL ??
-      "http://127.0.0.1:3219/zhiyin-guzheng-practice/",
+      "http://127.0.0.1:3219/",
   );
   await page.getByRole("note").filter({ hasText: "微信内置浏览器" }).waitFor();
   await page.getByRole("button", { name: "开始校音 →", exact: true }).click();

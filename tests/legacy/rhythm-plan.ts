@@ -1,3 +1,4 @@
+// Archived V0.10 rule fixtures; never imported by the application.
 import type { Event, Evaluation, Timeline } from "./practice-core.ts";
 
 export type RhythmRule = {

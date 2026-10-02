@@ -1,3 +1,4 @@
+// Archived prototype grading fixtures. Not used by the app.
 export function midiToHz(midi) {
   return 440 * 2 ** ((midi - 69) / 12);
 }
@@ -14,6 +15,33 @@ export function noteName(midi) {
   const names = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"];
   const rounded = Math.round(midi);
   return `${names[((rounded % 12) + 12) % 12]}${Math.floor(rounded / 12) - 1}`;
+}
+
+export function classifyPerformance({
+  actualMidi,
+  expectedMidi,
+  timingOffsetMs,
+  confidence,
+  pitchToleranceCents = 35,
+  timingToleranceMs = 120,
+}) {
+  if (confidence < 0.62) {
+    return {
+      status: "uncertain",
+      pitchOffsetCents: Math.round(centsBetween(actualMidi, expectedMidi)),
+      timingOffsetMs: Math.round(timingOffsetMs),
+    };
+  }
+
+  const pitchOffsetCents = centsBetween(actualMidi, expectedMidi);
+  const pitchCorrect = Math.abs(pitchOffsetCents) <= pitchToleranceCents;
+  const timingCorrect = Math.abs(timingOffsetMs) <= timingToleranceMs;
+
+  return {
+    status: !pitchCorrect ? "wrong" : timingCorrect ? "correct" : "timing",
+    pitchOffsetCents: Math.round(pitchOffsetCents),
+    timingOffsetMs: Math.round(timingOffsetMs),
+  };
 }
 
 export function autoCorrelate(buffer, sampleRate) {

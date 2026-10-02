@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PracticeEngine, makeTimeline } from "../lib/practice-core.ts";
-import { makeRhythmPlan, timingLabel } from "../lib/rhythm-plan.ts";
+import { PracticeEngine, makeTimeline } from "./legacy/practice-core.ts";
+import { makeRhythmPlan, timingLabel } from "./legacy/rhythm-plan.ts";
 import { SCORES } from "../lib/scores.ts";
 const gentle = {
   pitchCents: 50,

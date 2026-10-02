@@ -8,7 +8,7 @@ import {
   makeTimeline,
   validateScore,
   secondsAt,
-} from "../lib/practice-core.ts";
+} from "./legacy/practice-core.ts";
 import { SCORES, beatBeams } from "../lib/scores.ts";
 const score = SCORES[0];
 function perfect(s = score, bpm = 60) {

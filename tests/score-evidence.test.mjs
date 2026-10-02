@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ScoreEvidence } from "../lib/score-evidence.ts";
-import { PracticeEngine, makeTimeline } from "../lib/practice-core.ts";
+import { PracticeEngine, makeTimeline } from "./legacy/practice-core.ts";
 import { SCORES } from "../lib/scores.ts";
 import { ResidualStream } from "../lib/residual-stream.mjs";
 import { synthesize } from "./fixtures/residual-synth.mjs";

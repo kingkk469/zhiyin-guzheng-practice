@@ -2,38 +2,22 @@
 import { useEffect, useRef, useState } from "react";
 import ScorePlayhead from "./ScorePlayhead";
 import { notation, beatBeams } from "../lib/scores";
-import { timingLabel } from "../lib/rhythm-plan";
-import type {
-  Score,
-  Timeline,
-  Report,
-  PracticeEngine,
-} from "../lib/practice-core";
+import type { Score, Timeline } from "../lib/practice-core";
 export default function NumberedSheet({
   score,
   timeline,
-  report,
-  engine,
   elapsed = -10,
   onBar,
   clock,
 }: {
   score: Score;
   timeline: Timeline;
-  report?: Report | null;
-  engine?: PracticeEngine;
   elapsed?: number;
   onBar?: (m: number) => void;
   clock?: () => number | null;
 }) {
   const host = useRef<HTMLDivElement>(null),
     [columns, setColumns] = useState(4);
-  const evaluations = new Map(
-    (report?.evaluations ?? [...(engine?.results.values() ?? [])]).map((e) => [
-      e.key,
-      e,
-    ]),
-  );
   const active = timeline.bars.findIndex(
     (b) => elapsed >= b.start && elapsed < b.end,
   );
@@ -130,37 +114,19 @@ export default function NumberedSheet({
                   .map((n) => {
                     const p = notation(n.midi),
                       nx = x + 12 + n.beat * beatWidth,
-                      ev = evaluations.get(n.key),
-                      unsupported = n.midi !== null && !n.pitch && !n.rhythm;
-                    const color =
-                      ev?.kind === "wrong" || ev?.kind === "missed"
-                        ? "#b44336"
-                        : ev?.rhythm !== undefined && ev.rhythm < 1
-                          ? "#a46412"
-                          : ev?.kind === "correct"
-                            ? "#355f51"
-                            : unsupported
-                              ? "#929384"
-                              : "#202722";
+                      unsupported =
+                        n.technique !== undefined && n.technique !== "open";
+                    const color = "#202722";
                     const dotted = [0.375, 0.75, 1.5, 3].includes(n.duration);
-                    const mark = ev
-                      ? ev.kind === "uncertain"
-                        ? "?"
-                        : ev.kind === "missed"
-                          ? "−"
-                          : ev.pitch === false
-                            ? "×"
-                            : "✓"
-                      : "";
                     return (
                       <g
                         key={n.key}
                         className="score-symbol"
                         data-note={n.key}
                         fill={color}
-                        aria-label={`${p.digit} ${n.duration}拍 ${mark}`}
+                        aria-label={`${p.digit} ${n.duration}拍 `}
                       >
-                        <title>{`第${bar.measure}小节 ${p.digit} ${n.duration}拍${unsupported ? " 此技法不评分" : ""}${ev ? `；${timingLabel(ev)}` : ""}`}</title>
+                        <title>{`第${bar.measure}小节 ${p.digit} ${n.duration}拍${unsupported ? " 技法按单音播放" : ""}`}</title>
                         <text
                           x={nx}
                           y={y + 77}
@@ -201,26 +167,8 @@ export default function NumberedSheet({
                           textAnchor="middle"
                           fontSize="12"
                         >
-                          {mark}
-                          {ev?.rhythm !== undefined && ev.rhythm < 1
-                            ? ev.timing?.pattern
-                              ? " 节奏"
-                              : ev.offset! < 0
-                                ? " 早"
-                                : " 晚"
-                            : ""}
-                          {unsupported ? "不评分" : ""}
+                          {unsupported ? "技法" : ""}
                         </text>
-                        {engine?.timeline.events[engine.lastMatched]?.key ===
-                          n.key && (
-                          <circle
-                            cx={nx + 22}
-                            cy={y + 115}
-                            r="4"
-                            fill="none"
-                            stroke="#355f51"
-                          />
-                        )}
                       </g>
                     );
                   })}
@@ -265,10 +213,7 @@ export default function NumberedSheet({
         </svg>
       </div>
       <div className="v-legend">
-        <span>红线：目标拍点</span>
-        <span>○ 实际位置</span>
-        <span>✓ 准确　× 错音　− 漏音</span>
-        <span>早 / 晚：节奏</span>
+        <span>红线：当前播放位置</span>
         <span>下方折线：每拍下行、上行</span>
       </div>
     </section>

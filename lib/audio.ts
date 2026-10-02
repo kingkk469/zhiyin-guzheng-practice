@@ -18,7 +18,6 @@ export class LocalAudio {
   recorder: MediaRecorder | null = null;
   chunks: Blob[] = [];
   recordingStart = 0;
-  output: AudioContext | null = null;
   onFrame: (f: Frame) => void = () => {};
   onInterrupted: (reason?: string) => void = () => {};
   closed = false;
@@ -211,47 +210,9 @@ export class LocalAudio {
       }
     });
   }
-  async preview(
-    notes: {
-      time: number;
-      end: number;
-      midi: number | null;
-    }[],
-    duration: number,
-  ) {
-    this.stopPreview();
-    this.output = new AudioContext();
-    await this.output.resume();
-    const ctx = this.output,
-      start = ctx.currentTime + 0.08;
-    for (const n of notes) {
-      if (n.midi === null) continue;
-      const osc = ctx.createOscillator(),
-        gain = ctx.createGain();
-      osc.type = "triangle";
-      osc.frequency.value = 440 * 2 ** ((n.midi - 69) / 12);
-      gain.gain.setValueAtTime(0.0001, start + n.time);
-      gain.gain.exponentialRampToValueAtTime(0.16, start + n.time + 0.012);
-      gain.gain.exponentialRampToValueAtTime(
-        0.0001,
-        start + Math.max(n.time + 0.03, n.end),
-      );
-      osc.connect(gain).connect(ctx.destination);
-      osc.start(start + n.time);
-      osc.stop(start + n.end + 0.04);
-    }
-    return duration;
-  }
-  stopPreview() {
-    if (this.output) {
-      void this.output.close().catch(() => {});
-      this.output = null;
-    }
-  }
   close() {
     this.setAssessment(false);
     this.closed = true;
-    this.stopPreview();
     this.node?.disconnect();
     this.node = null;
     for (const t of this.stream?.getTracks() ?? []) t.stop();

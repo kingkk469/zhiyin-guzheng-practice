@@ -8,7 +8,7 @@ export function generateMetadata(): Metadata {
     process.env.NEXT_PUBLIC_SITE_URL ??
     "https://zhiyin-guzheng-practice.jolly-rhea-7956.chatgpt.site";
   const title = "知音 · 古筝智能陪练";
-  const description = "看简谱练习，实时获得古筝音高与节奏反馈。";
+  const description = "用古筝合成音色按谱带练，自由调速，跟着简谱慢慢弹。";
 
   return {
     metadataBase: new URL(origin),

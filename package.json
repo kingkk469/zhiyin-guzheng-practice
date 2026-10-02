@@ -1,6 +1,6 @@
 {
   "name": "zhiyin-guzheng-practice",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -10,16 +10,18 @@
     "build": "npm run build:review && next build",
     "build:pages": "npm run build:review && next build",
     "start": "next start --hostname 127.0.0.1 --port 3219",
-    "test": "node --test --test-isolation=none tests/music-core.test.mjs tests/practice.test.mjs tests/capture.test.mjs tests/tuning-sweep.test.mjs tests/pitch-detector.test.mjs tests/score-motion.test.mjs tests/fine-tuning.test.mjs tests/review-candidates.test.mjs tests/review-comparison.test.mjs tests/residual-review.test.mjs tests/score-evidence.test.mjs tests/pluck-evidence.test.mjs tests/rhythm-plan.test.mjs",
+    "test": "node --test --test-isolation=none tests/capture.test.mjs tests/tuning-sweep.test.mjs tests/pitch-detector.test.mjs tests/score-motion.test.mjs tests/fine-tuning.test.mjs tests/review-candidates.test.mjs tests/review-comparison.test.mjs tests/residual-review.test.mjs tests/pluck-evidence.test.mjs tests/accompaniment.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "build:sites": "npm run build:review && vinext build",
     "test:render": "node --test --test-isolation=none tests/rendered-html.test.mjs",
-    "test:browser": "node tests/browser-smoke.mjs",
-    "test:audio": "node tests/browser-audio.mjs",
+    "test:browser": "node tests/browser-accompaniment.mjs",
+    "test:audio": "node tests/browser-review.mjs",
     "typecheck": "tsc --noEmit",
     "test:sweep": "node tests/browser-sweep.mjs",
-    "build:review": "node scripts/build-review.mjs"
+    "build:review": "node scripts/build-review.mjs",
+    "test:legacy": "node --test --test-isolation=none tests/music-core.test.mjs tests/practice.test.mjs tests/rhythm-plan.test.mjs tests/score-evidence.test.mjs",
+    "test:fine": "node tests/browser-fine.mjs"
   },
   "dependencies": {
     "@spotify/basic-pitch": "1.0.1",

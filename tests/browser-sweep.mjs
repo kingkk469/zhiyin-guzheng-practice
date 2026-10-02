@@ -77,9 +77,9 @@ try {
   assert.equal(await page.locator(".v-sweep-note.missed").count(), 1);
   assert.equal(
     await page
-      .getByRole("button", { name: "校音完成，去练习 →", exact: true })
+      .getByRole("button", { name: "直接去练习 →", exact: true })
       .isDisabled(),
-    true,
+    false,
   );
   await page.screenshot({
     path: "outputs/tuning-sweep-results.png",
@@ -127,9 +127,9 @@ try {
   await page.getByRole("button", { name: "停止巡检", exact: true }).click();
   assert.equal(
     await page
-      .getByRole("button", { name: "校音完成，去练习 →", exact: true })
+      .getByRole("button", { name: "直接去练习 →", exact: true })
       .isDisabled(),
-    true,
+    false,
   );
   assert.deepEqual(errors, []);
   await writeFile(
@@ -145,7 +145,7 @@ try {
           "18 correct 1 high 1 low 1 skipped",
           "no slot shift",
           "problem string fine tuning",
-          "21 confirmed gate",
+          "optional tuning navigation",
           "mobile layout",
           "restart clears previous passes",
           "stop preserves unresolved status",
